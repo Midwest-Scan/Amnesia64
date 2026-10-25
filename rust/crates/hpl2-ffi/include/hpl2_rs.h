@@ -209,7 +209,7 @@ typedef struct HplAIStateTransitionHost {
   void (*set_current)(void *ctx, void *state);
 } HplAIStateTransitionHost;
 
-// Dispatches the selected state once into its native fixed-step update loop.
+// Dispatches the selected state once into its fixed-step update loop.
 // All callbacks are required; update catches and reports native exceptions.
 typedef struct HplAIStateUpdateHost {
   void *ctx;
@@ -217,6 +217,17 @@ typedef struct HplAIStateUpdateHost {
   void *(*current)(void *ctx);
   bool (*update)(void *ctx, void *state, float time);
 } HplAIStateUpdateHost;
+
+// Every callback is required. Native timer storage is read/written at each
+// original operation; on_update catches exceptions and returns false on failure.
+// Each nested call uses its own host/exception slot and the same live state.
+typedef struct HplAIStateScheduleHost {
+  void *ctx;
+  float (*time_count)(void *ctx);
+  void (*set_time_count)(void *ctx, float count);
+  float (*update_step)(void *ctx);
+  bool (*on_update)(void *ctx, float step);
+} HplAIStateScheduleHost;
 
 // Receives one log line (UTF-8, no trailing newline). Must be thread safe.
 typedef void (*HplLogCallback)(int32_t level, const char *message);
@@ -469,6 +480,8 @@ bool hpl_ai_node_generator_intersect(const struct HplAINodeIntersectionHost *hos
 void hpl_ai_state_change(int32_t id, const struct HplAIStateTransitionHost *host);
 
 void hpl_ai_state_update(float time, const struct HplAIStateUpdateHost *host);
+
+void hpl_ai_state_schedule(float time, const struct HplAIStateScheduleHost *host);
 
 // Initialise the Rust side of the engine. Call once at startup, before any
 // other `hpl_*` function if logging is wanted. Safe to call again to

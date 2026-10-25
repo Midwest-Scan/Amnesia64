@@ -51,6 +51,33 @@ namespace hpl {
 
 	void iAIState::Update(float afTime)
 	{
+#if HPL2_RUST_AI
+		struct cStateScheduleContext
+		{
+			iAIState *mpState;
+			std::exception_ptr mException;
+		};
+		cStateScheduleContext context = { this, std::exception_ptr() };
+		HplAIStateScheduleHost host = {
+			&context,
+			[](void *apCtx) -> float {
+				return static_cast<cStateScheduleContext*>(apCtx)->mpState->mfTimeCount;
+			},
+			[](void *apCtx, float afCount) {
+				static_cast<cStateScheduleContext*>(apCtx)->mpState->mfTimeCount = afCount;
+			},
+			[](void *apCtx) -> float {
+				return static_cast<cStateScheduleContext*>(apCtx)->mpState->mfUpdateStep;
+			},
+			[](void *apCtx, float afStep) -> bool {
+				cStateScheduleContext *pCtx = static_cast<cStateScheduleContext*>(apCtx);
+				try { pCtx->mpState->OnUpdate(afStep); return true; }
+				catch(...) { pCtx->mException = std::current_exception(); return false; }
+			}
+		};
+		hpl_ai_state_schedule(afTime, &host);
+		if(context.mException) std::rethrow_exception(context.mException);
+#else
 		//Update according to the time step
 		mfTimeCount	+= afTime;
 		while(mfTimeCount >= mfUpdateStep)
@@ -58,6 +85,7 @@ namespace hpl {
 			OnUpdate(mfUpdateStep);
 			mfTimeCount -= mfUpdateStep;
 		}
+#endif
 	}
 
 	//-----------------------------------------------------------------------
@@ -111,7 +139,7 @@ namespace hpl {
 				cStateUpdateContext *pCtx = static_cast<cStateUpdateContext*>(apCtx);
 				try
 				{
-					// Keep the state's live fixed-step loop and virtual dispatch native.
+					// Keep the selected state through its entire backlog, including reentry.
 					static_cast<iAIState*>(apState)->Update(afTimeStep);
 					return true;
 				}

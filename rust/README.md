@@ -10,7 +10,7 @@ moving on.
 | `HPL2/core/*/math` | **Ported** (cMath, cQuaternion, cFrustum, cBoundingVolume, cCRC) | `HPL2_RUST_MATH` |
 | `HPL2/core/*/system` | **Partly ported** (cString, cPreprocessParser, cLogicTimer, VideoComp; SHA1 in Rust only) | `HPL2_RUST_SYSTEM` |
 | `HPL2/core/*/generate` | **Algorithms ported** (cVoxelMap sizing, writes, debug traversal; C++ allocation/factory shell retained) | `HPL2_RUST_GENERATE` |
-| `HPL2/core/*/ai` | **Partly ported** (AStar core and path setup/output, node edge metrics, grid build/lookup, iterator stepping, Compile connection filtering/trimming, state transitions and update dispatch, node generation placement; ownership and physics remain C++) | `HPL2_RUST_AI` |
+| `HPL2/core/*/ai` | **Partly ported** (AStar core and path setup/output, node edge metrics, grid build/lookup, iterator stepping, Compile connection filtering/trimming, state transitions/dispatch/scheduling, node generation placement; ownership and physics remain C++) | `HPL2_RUST_AI` |
 | everything else | C++ | – |
 
 The Lux project lives under `amnesia/src/game/` in this checkout. Editors
@@ -52,7 +52,7 @@ rust/
     hpl-math/           Port of HPL2/core/{include,sources}/math. Pure Rust, no C ABI.
     hpl-system/         Strings, shader preprocessor, SHA1, logic timer, video mode ordering
     hpl-generate/       Voxel allocation arithmetic, flat indexing and live debug traversal
-    hpl-ai/             AStar search/setup/output, node/grid/connection/placement and state transition/dispatch decisions
+    hpl-ai/             AStar search/setup/output, node/grid/connection/placement and state transition/dispatch/scheduling decisions
     hpl2-ffi/           The C ABI: builds hpl2_rs.lib and generates include/hpl2_rs.h
   tools/math-diff/      Differential test: original C++ vs. Rust, bit for bit
   tools/system-diff/    The same for cString and cPreprocessParser
@@ -64,6 +64,7 @@ rust/
   tools/ai-state-diff/   Real StateMachine with derived callbacks, reentry, live IDs and exception traces
   tools/astar-path-diff/ Real GetPath and navigation grid/visibility, live endpoints and output callbacks
   tools/ai-placement-diff/ Real Generate/OnIntersect, body bounds, controlled rays, live parameters and node lists
+  tools/ai-scheduler-diff/ Real state scheduling, live steps/counters, reentry, exceptions and remainder probes
 ```
 
 C++ side:
@@ -78,7 +79,7 @@ HPL2/core/sources/system/Platform.cpp    VideoComp forwards; variadic wrappers s
 HPL2/core/sources/generate/VoxelMap.cpp per-function forwards; allocation/ownership stay C++
 HPL2/core/sources/ai/AStar.cpp         five forwards; native sets, allocations and iterator lifetimes retained
 HPL2/core/sources/ai/AINodeContainer.cpp edge/grid/Compile forwards; ownership, lists, sorting and physics retained
-HPL2/core/sources/ai/StateMachine.cpp  transition/dispatch forwards; virtual states and scheduling retained
+HPL2/core/sources/ai/StateMachine.cpp  transition/dispatch/scheduler forwards; native timer storage, registration and virtual states retained
 HPL2/core/sources/ai/AINodeGenerator.cpp placement/intersection forwards; physics, lists and file caching retained
 ```
 
@@ -159,9 +160,15 @@ FFI conventions:
   handles with the same per-invocation exception pattern. Rust controls leave,
   enter and final assignment order and machine-level update gating. Warning,
   enter, leave and update callbacks catch native exceptions; no C++ object or
-  vtable is mirrored. The native state scheduler receives the original f32
+  vtable is mirrored. The selected state's scheduler receives the original f32
   time value unchanged. Initial null-current ChangeState aborts (original UB);
   null current during machine Update remains a normal no-op.
+* `HplAIStateScheduleHost` reads/writes the selected state's live native timer
+  through callbacks. Rust publishes elapsed time before the first tick and
+  rereads both counter and step after each virtual OnUpdate. The bridge holds
+  no Rust reference into timer storage across reentry; every nested invocation
+  has its own exception slot. A failed callback skips subtraction and rethrows
+  only after Rust returns. No state/vtable mirror or timer snapshot is added.
 * `HplAStarPathHost` keeps original start/goal references in its native context,
   rather than snapshotting them at FFI entry. Endpoint selectors are int32_t:
   0=start and 1=goal. Native iterators are constructed lazily in aligned stack
@@ -647,9 +654,10 @@ current-state dispatch in `cStateMachine::Update`. Two exports in
 original bodies remain under `#else`; removing the new branches and bridge
 includes reconstructs the original source byte-for-byte.
 
-State objects, vtables, map ownership, registration, getters, lifecycle and
-`iAIState::Update`'s fixed-step scheduler remain native. `Sleep` remains its
-original no-op. No object layout, dependency or phase-2 ownership change is
+State objects, vtables, map ownership, registration, getters and lifecycle
+remain native. This slice originally left `iAIState::Update`'s scheduler native;
+the later scheduler slice below ports its loop. `Sleep` remains its original
+no-op. No object layout, dependency or phase-2 ownership change is
 involved. A repository-wide call-site audit found no users/subclasses of this
 HPL2 state machine in the engine or Lux; Lux's player/enemy state systems are
 separate. This port therefore has direct harness validation but no specific
@@ -670,7 +678,7 @@ The original was audited before implementation. Preserved quirks:
 * Each invocation has its own native exception slot. A caught inner exception
   cannot poison an outer transition. No exception unwinds through Rust.
 * Machine Update tests active first, then current, and dispatches the selected
-  state once. The native scheduler may keep draining that state's backlog after
+  state once. The scheduler may keep draining that state's backlog after
   callbacks switch the machine's current state or deactivate it. Its live-step,
   reentrant-counter and float behavior remain unchanged.
 * Native registration still selects the first state without enter notification,
@@ -680,7 +688,7 @@ The original was audited before implementation. Preserved quirks:
 **Deviation:** ChangeState with no current state explicitly aborts through the
 Rust panic diagnostic. The original immediately dereferences null. Invalidated
 objects and uninitialized state fields remain invalid caller input. Potentially
-nonterminating fixed-step loops remain native; zero/negative steps are not
+nonterminating fixed-step loops retain their original behavior; zero/negative steps are not
 blanket-rejected because callbacks can change them and make the original finish.
 
 `tools/ai-state-diff/run.ps1 <repo> [<pristine-repo>]` runs on native Windows
@@ -941,9 +949,104 @@ general regression check. The only generator caller found is the engine's
 does not directly validate this slice. The public Generate differential harness
 provides that coverage. Gameplay validation remains for the owner.
 
-Recommended next slice: the native AI state scheduler, preserving live counters,
-callback-rescued steps and nested update semantics. Keep file caching and class
-ownership native unless a separate scope is agreed.
+The AI state scheduler is covered by the following slice.
+
+## AI state scheduler slice
+
+`hpl-ai/src/state_machine.rs` now also ports `iAIState::Update`'s fixed-step loop.
+`HplAIStateScheduleHost` and `hpl_ai_state_schedule` in the existing
+`hpl2-ffi/src/ai_state.rs` forward it through `HPL2_RUST_AI`. The complete original
+body remains under `#else`. Timer fields, state objects/vtables, registration,
+ownership, getters and the no-op Sleep stay in C++; no dependency, object layout,
+language standard or phase-2 ownership change is introduced.
+
+The original was audited before implementation. Preserved quirks:
+
+* Elapsed time is added in f32 and stored before the first comparison, including
+  when no callback runs or a callback later throws. Negative elapsed time is
+  retained. Neither registration nor transitions reset the existing remainder.
+* The ordered `count >= step` comparison includes equality and rejects NaNs.
+  Every successful tick subtracts separately in f32; division, multiplication
+  or a retained f64 accumulator would change rounding and sometimes tick counts.
+* OnUpdate receives the current step. After it returns, both counter and step
+  are reread before subtraction. A callback may change the step or recursively
+  update the same state's shared counter. No stale local copy overwrites that
+  nested work.
+* The outer backlog stays with its selected state even when callbacks change
+  current state or activity. Only a new machine-level Update checks those fields.
+* Zero, negative, infinite and precision-stagnant steps are not rejected or
+  capped: callbacks may make those loops terminate. Same-sign infinite count
+  and step can produce one tick then NaN naturally. Sleep remains a no-op.
+* Exceptions preserve elapsed accumulation and all completed callback/nested
+  effects, skip that tick's subtraction, and stop immediately. Nested calls
+  have independent exception slots, so a caught inner failure cannot poison the
+  outer invocation. No C++ exception unwinds through Rust.
+
+**No new deviations.** The prior null-current ChangeState deviation is unchanged.
+Uninitialized steps, destroyed state objects, concurrent unsynchronized access,
+unbounded recursion and nonterminating loops remain outside the defined corpus.
+The test fixtures use initialized registered states and bounded callbacks; no
+private timer access, layout tricks or production test hooks are introduced.
+
+`tools/ai-scheduler-diff/run.ps1 <repo> [<pristine-repo>]` compares original,
+switch-off, Rust release and Rust debug on Windows x64. `run.sh` is its Linux
+companion. Baseline `9f35c56` was archived before edits to
+`rust/target/ai-scheduler-pristine`; archive `HPL2/core` from that commit to
+recreate it. The harness links production StateMachine.cpp and drives ordinary
+derived states through public cStateMachine::Update. Callback traces print float
+bits, state identity, activity and exceptions; later public updates probe the
+otherwise private timer remainder. Registration, scheduling and transition
+algorithms are never replaced by test stubs.
+
+The corpus runs 4,183 machines (4,096 seeded), 92,894 public updates, 66,627
+callbacks including 33,124 scheduler ticks, 2,226 controlled exceptions and
+2,272 nested updates. It covers exact/adjacent and decimal steps, negative time,
+live step edits, re-registration, same-state and cross-state reentry, transitions,
+activity changes, caught/escaping failures and callback-rescued special steps.
+Private NaN payload bits cannot be observed through this public API; the corpus
+checks their persistent suppression of callbacks, while unit tests inspect the
+pure host's numeric state. An emergency fixture callback budget reports a test
+failure and can never count as a detected mutation; the clean corpus hits no
+such limit.
+
+`tools/ai-scheduler-diff/mutate.ps1 <repo>` requires actual output mismatches,
+restores exact source bytes and rebuilds both Rust profiles in `finally`.
+Run it without concurrent Rust edits or builds. Logs stay under
+`rust/target/ai-scheduler-diff/`.
+
+Verification for this slice (Rust 1.97.0, native Windows x64 MSVC):
+
+* Workspace unit tests: **232 passed** (119 AI, 13 generate, 33 math, 27 system,
+  40 FFI; 30 added by this slice).
+* `cargo clippy --workspace --all-targets --locked -- -D warnings`: clean.
+* Scheduler differential: **796,994 lines, 4-way identical** against `9f35c56`.
+* Earlier state-transition/dispatch regression: **789,159 lines, 4-way identical**.
+* Mutation check: **10/10 final mutations caught, 0 equivalent mutants**, all
+  completed output mismatches. Exact source bytes were restored, both Rust
+  libraries rebuilt and the clean four-way comparison repeated successfully.
+  An initial dropped-time trial exposed a missing catch around a deliberate
+  exception in a later public transition probe; that test boundary was repaired.
+  A separate overwritten-remainder trial exhausted the callback budget on large
+  negative-time/infinity probes and was excluded, not counted as a detection or
+  equivalent mutant. The full corpus and budget were retained; the final ten
+  mutations were rerun from scratch, including retained-f64 accumulation.
+* Full `Amnesia.sln` **Debug x64 and Release x64 passed**, including Lux and
+  all six editor/tool projects, using normal process access for MSVC.
+* Linux/WSL was not run. The Linux runner is supplied without claiming a pass.
+  Unit tests/Clippy used process-only `CARGO_INCREMENTAL=0`; no toolchain pin,
+  project compiler setting or language standard changed. Source/project line
+  endings were preserved; the generated header was restored to CRLF after the
+  final builds.
+
+Reload the Rust project in Visual Studio (or restart VS), then build Debug and
+Release x64. Load a save, switch between movement and an interaction such as a
+ladder or carried object, and observe enemy patrol/pursuit as a general regression
+check. Lux's state systems are separate; no engine/Lux callers or subclasses of
+this HPL2 state machine were found, so the public-API differential harness is
+the direct validation. Gameplay validation remains for the owner.
+
+Recommended next slice: audit AINodeContainer's FreePath ray setup and filtering,
+keeping physics ownership and virtual ray execution native.
 
 ## Troubleshooting
 

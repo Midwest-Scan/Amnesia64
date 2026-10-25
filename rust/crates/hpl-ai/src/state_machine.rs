@@ -1,11 +1,15 @@
-//! Transition and update dispatch decisions from `ai/StateMachine.cpp`.
+//! Transitions, update dispatch and fixed-step scheduling from `ai/StateMachine.cpp`.
 //!
 //! Original audit: IDs can differ from map keys; self transitions compare the
 //! live current ID before lookup. Leave precedes enter, and current is assigned
 //! only after enter returns. Reentrant callbacks can change the current state
 //! and IDs; failures keep those side effects without rollback. Update checks
-//! active once, then dispatches the selected state's native fixed-step loop.
-//! Registration, object ownership, virtual callbacks and that loop stay C++.
+//! active once, then dispatches the selected state's fixed-step loop. Scheduling
+//! publishes elapsed time before callbacks and rereads both count and step after
+//! each callback. Nested updates share the native counter; failures skip the
+//! subtraction. Zero/negative/nonfinite steps may terminate through callbacks,
+//! so no cap or validation changes the original loops. Registration, ownership,
+//! timer storage and virtual callbacks stay C++; scheduling adds no deviations.
 //! The original ChangeState dereferences null when there is no current state;
 //! stale/destroyed objects and unregistered/uninitialized state fields are also
 //! invalid caller input. Only the initial null dereference is handled below.
@@ -45,7 +49,7 @@ pub fn change_state<H: TransitionHost>(host: &mut H, id: i32) {
     host.set_current(target);
 }
 
-/// Machine-level dispatch only; C++ owns the state's timer and virtual loop.
+/// Machine-level dispatch only; the selected state's scheduling owns its backlog.
 pub trait UpdateHost {
     type State: Copy;
     fn active(&self) -> bool;
@@ -58,6 +62,27 @@ pub fn update<H: UpdateHost>(host: &mut H, time: f32) {
     let Some(current) = host.current() else { return; };
     // Faithful: do not gate each tick or switch the selected state mid-backlog.
     host.update(current, time);
+}
+
+/// Live access to one state's native timer. No snapshot or Rust reference to
+/// timer storage survives a virtual callback. False from on_update means C++
+/// saved an exception and must rethrow after this invocation returns.
+pub trait ScheduleHost {
+    fn time_count(&self) -> f32;
+    fn set_time_count(&mut self, count: f32);
+    fn update_step(&self) -> f32;
+    fn on_update(&mut self, step: f32) -> bool;
+}
+
+pub fn schedule<H: ScheduleHost>(host: &mut H, time: f32) {
+    // Faithful: publish the f32 addition even if no tick runs or a callback fails.
+    host.set_time_count(host.time_count() + time);
+    while host.time_count() >= host.update_step() {
+        if !host.on_update(host.update_step()) { return; }
+        // Faithful: a callback can change the step or run nested updates against
+        // this same counter. Subtract only afterward, rereading both live values.
+        host.set_time_count(host.time_count() - host.update_step());
+    }
 }
 
 #[cfg(test)]
@@ -302,5 +327,273 @@ mod tests {
         assert_eq!(machine.events, [Event::Update(0, 0.5_f32.to_bits())]);
         assert_eq!(machine.current, Some(2));
         assert!(!machine.active);
+    }
+}
+
+#[cfg(test)]
+mod schedule_tests {
+    use super::{ScheduleHost, schedule};
+
+    #[derive(Debug, PartialEq)]
+    enum Event { Store(u32), Tick { step: u32, count: u32, depth: usize } }
+
+    struct Timer {
+        count: f32,
+        step: f32,
+        calls: usize,
+        depth: usize,
+        fail_at: Option<usize>,
+        action: Option<fn(&mut Timer, usize)>,
+        events: Vec<Event>,
+    }
+    impl Timer {
+        fn new(count: f32, step: f32) -> Self {
+            Self { count, step, calls: 0, depth: 0, fail_at: None, action: None, events: Vec::new() }
+        }
+        fn nested(&mut self, time: f32) {
+            self.depth += 1;
+            schedule(self, time);
+            self.depth -= 1;
+        }
+        fn ticks(&self) -> Vec<(u32, u32, usize)> {
+            self.events.iter().filter_map(|event| match event {
+                Event::Tick { step, count, depth } => Some((*step, *count, *depth)), _ => None,
+            }).collect()
+        }
+        fn stores(&self) -> Vec<u32> {
+            self.events.iter().filter_map(|event| match event { Event::Store(count) => Some(*count), _ => None }).collect()
+        }
+    }
+    impl ScheduleHost for Timer {
+        fn time_count(&self) -> f32 { self.count }
+        fn set_time_count(&mut self, count: f32) { self.count = count; self.events.push(Event::Store(count.to_bits())); }
+        fn update_step(&self) -> f32 { self.step }
+        fn on_update(&mut self, step: f32) -> bool {
+            let index = self.calls;
+            assert!(index < 20000, "test fixture unexpectedly entered an unbounded scheduler loop");
+            self.calls += 1;
+            self.events.push(Event::Tick { step: step.to_bits(), count: self.count.to_bits(), depth: self.depth });
+            if let Some(action) = self.action { action(self, index); }
+            self.fail_at != Some(index)
+        }
+    }
+
+    #[test]
+    fn elapsed_time_is_published_before_ticks_and_remainder_survives() {
+        let mut timer = Timer::new(0.125, 0.25);
+        schedule(&mut timer, 0.5);
+        assert_eq!(timer.events, [Event::Store(0.625_f32.to_bits()),
+            Event::Tick { step: 0.25_f32.to_bits(), count: 0.625_f32.to_bits(), depth: 0 }, Event::Store(0.375_f32.to_bits()),
+            Event::Tick { step: 0.25_f32.to_bits(), count: 0.375_f32.to_bits(), depth: 0 }, Event::Store(0.125_f32.to_bits())]);
+        schedule(&mut timer, 0.125);
+        assert_eq!(timer.calls, 3); assert_eq!(timer.count.to_bits(), 0);
+    }
+
+    #[test]
+    fn exact_step_runs_but_adjacent_lower_value_waits() {
+        let step = 0.5_f32;
+        for (time, expected_calls, expected_count) in [
+            (f32::from_bits(step.to_bits() - 1), 0, f32::from_bits(step.to_bits() - 1)),
+            (step, 1, 0.0), (f32::from_bits(step.to_bits() + 1), 1, f32::from_bits(0x33800000)),
+        ] {
+            let mut timer = Timer::new(0.0, step);
+            schedule(&mut timer, time);
+            assert_eq!(timer.calls, expected_calls); assert_eq!(timer.count.to_bits(), expected_count.to_bits());
+        }
+    }
+
+    #[test]
+    fn negative_elapsed_is_retained_and_later_time_repays_it() {
+        let mut timer = Timer::new(0.125, 0.25);
+        schedule(&mut timer, -0.5);
+        assert_eq!(timer.count, -0.375); assert_eq!(timer.calls, 0);
+        schedule(&mut timer, 0.625);
+        assert_eq!(timer.count, 0.0); assert_eq!(timer.calls, 1);
+    }
+
+    #[test]
+    fn every_subtraction_rounds_to_f32_before_the_next_callback() {
+        let mut timer = Timer::new(0.0, 0.1);
+        schedule(&mut timer, 0.3);
+        assert_eq!(timer.stores(), [0x3e99999a, 0x3e4cccce, 0x3dcccccf, 0x32800000]);
+        assert_eq!(timer.calls, 3);
+    }
+
+    #[test]
+    fn initial_addition_rounds_before_comparison_and_callback() {
+        let mut timer = Timer::new(16777216.0, 16777216.0);
+        schedule(&mut timer, 1.0);
+        assert_eq!(timer.ticks(), [(16777216.0_f32.to_bits(), 16777216.0_f32.to_bits(), 0)]);
+        assert_eq!(timer.count.to_bits(), 0);
+    }
+
+    #[test]
+    fn nan_counter_step_or_elapsed_prevents_ticks_without_discarding_accumulation() {
+        let mut timer = Timer::new(f32::NAN, 0.25);
+        schedule(&mut timer, 1.0); assert!(timer.count.is_nan()); assert_eq!(timer.calls, 0);
+        let mut timer = Timer::new(0.125, f32::NAN);
+        schedule(&mut timer, 0.25); assert_eq!(timer.count, 0.375); assert_eq!(timer.calls, 0);
+        let mut timer = Timer::new(0.125, 0.25);
+        schedule(&mut timer, f32::NAN); assert!(timer.count.is_nan()); assert_eq!(timer.calls, 0);
+    }
+
+    #[test]
+    fn matching_infinite_counter_and_step_tick_once_then_become_nan() {
+        for infinity in [f32::INFINITY, f32::NEG_INFINITY] {
+            let mut timer = Timer::new(infinity, infinity);
+            schedule(&mut timer, 0.0);
+            assert_eq!(timer.ticks(), [(infinity.to_bits(), infinity.to_bits(), 0)]);
+            assert!(timer.count.is_nan());
+        }
+        let mut timer = Timer::new(1.0, f32::INFINITY);
+        schedule(&mut timer, 0.0); assert_eq!(timer.calls, 0); assert_eq!(timer.count, 1.0);
+    }
+
+    #[test]
+    fn infinite_counter_can_be_rescued_by_an_infinite_callback_step() {
+        let mut timer = Timer::new(0.0, 0.25);
+        timer.action = Some(|timer, _| timer.step = f32::INFINITY);
+        schedule(&mut timer, f32::INFINITY);
+        assert_eq!(timer.calls, 1); assert!(timer.count.is_nan());
+        assert_eq!(timer.ticks()[0].0, 0.25_f32.to_bits());
+    }
+
+    #[test]
+    fn zero_and_negative_steps_can_be_repaired_after_multiple_callbacks() {
+        for step in [0.0, -0.0, -0.25] {
+            let mut timer = Timer::new(0.0, step);
+            timer.action = Some(|timer, index| if index == 1 { timer.step = 1.0; });
+            schedule(&mut timer, 0.0);
+            assert_eq!(timer.calls, 2);
+            assert_eq!(timer.count, if step < 0.0 { -0.75 } else { -1.0 });
+            assert_eq!(timer.ticks()[0].0, step.to_bits()); assert_eq!(timer.ticks()[1].0, step.to_bits());
+        }
+    }
+
+    #[test]
+    fn negative_infinite_step_can_be_repaired_before_subtraction() {
+        let mut timer = Timer::new(0.0, f32::NEG_INFINITY);
+        timer.action = Some(|timer, _| timer.step = 1.0);
+        schedule(&mut timer, 0.0);
+        assert_eq!(timer.calls, 1); assert_eq!(timer.count, -1.0);
+        assert_eq!(timer.ticks()[0].0, f32::NEG_INFINITY.to_bits());
+    }
+
+    #[test]
+    fn finite_f32_stagnation_can_be_repaired_by_a_later_callback() {
+        let mut timer = Timer::new(16777216.0, 0.5);
+        timer.action = Some(|timer, index| if index == 1 { timer.step = 16777216.0; });
+        schedule(&mut timer, 0.0);
+        assert_eq!(timer.ticks(), vec![(0.5_f32.to_bits(), 16777216.0_f32.to_bits(), 0); 2]);
+        assert_eq!(timer.count, 0.0);
+    }
+
+    #[test]
+    fn callback_step_is_used_for_subtraction_and_next_comparison() {
+        let mut timer = Timer::new(0.0, 0.25);
+        timer.action = Some(|timer, _| timer.step = 0.5);
+        schedule(&mut timer, 0.75);
+        assert_eq!(timer.ticks(), [(0.25_f32.to_bits(), 0.75_f32.to_bits(), 0)]);
+        assert_eq!(timer.count, 0.25);
+    }
+
+    #[test]
+    fn callback_can_reduce_the_step_and_extend_the_backlog() {
+        let mut timer = Timer::new(0.0, 0.5);
+        timer.action = Some(|timer, index| if index == 0 { timer.step = 0.125; });
+        schedule(&mut timer, 0.5);
+        assert_eq!(timer.calls, 4); assert_eq!(timer.count, 0.0);
+        assert_eq!(timer.ticks().iter().map(|tick| tick.0).collect::<Vec<_>>(),
+            [0.5_f32.to_bits(), 0.125_f32.to_bits(), 0.125_f32.to_bits(), 0.125_f32.to_bits()]);
+    }
+
+    #[test]
+    fn callback_nan_step_is_subtracted_before_the_loop_stops() {
+        let mut timer = Timer::new(0.0, 0.25);
+        timer.action = Some(|timer, _| timer.step = f32::NAN);
+        schedule(&mut timer, 0.5);
+        assert_eq!(timer.calls, 1); assert!(timer.count.is_nan());
+    }
+
+    #[test]
+    fn same_state_nested_update_consumes_the_shared_pre_subtraction_counter() {
+        let mut timer = Timer::new(0.0, 0.25);
+        timer.action = Some(|timer, index| if index == 0 { timer.nested(0.25); });
+        schedule(&mut timer, 0.5);
+        assert_eq!(timer.ticks(), [(0.25_f32.to_bits(), 0.5_f32.to_bits(), 0),
+            (0.25_f32.to_bits(), 0.75_f32.to_bits(), 1), (0.25_f32.to_bits(), 0.5_f32.to_bits(), 1),
+            (0.25_f32.to_bits(), 0.25_f32.to_bits(), 1)]);
+        assert_eq!(timer.count, -0.25);
+    }
+
+    #[test]
+    fn nested_update_step_change_is_used_by_the_outer_subtraction() {
+        let mut timer = Timer::new(0.0, 0.25);
+        timer.action = Some(|timer, index| match index {
+            0 => timer.nested(0.0), 1 => timer.step = 0.5, _ => {},
+        });
+        schedule(&mut timer, 0.5);
+        assert_eq!(timer.ticks(), [(0.25_f32.to_bits(), 0.5_f32.to_bits(), 0), (0.25_f32.to_bits(), 0.5_f32.to_bits(), 1)]);
+        assert_eq!(timer.count, -0.5); assert_eq!(timer.step, 0.5);
+    }
+
+    #[test]
+    fn first_callback_failure_preserves_accumulation_and_callback_changes() {
+        let mut timer = Timer::new(0.125, 0.25);
+        timer.fail_at = Some(0);
+        timer.action = Some(|timer, _| timer.step = 0.5);
+        schedule(&mut timer, 0.375);
+        assert_eq!(timer.count, 0.5); assert_eq!(timer.step, 0.5); assert_eq!(timer.stores(), [0.5_f32.to_bits()]);
+        timer.fail_at = None; timer.action = None;
+        schedule(&mut timer, 0.0);
+        assert_eq!(timer.calls, 2); assert_eq!(timer.count, 0.0);
+    }
+
+    #[test]
+    fn later_callback_failure_keeps_completed_deductions_only() {
+        let mut timer = Timer::new(0.0, 0.25); timer.fail_at = Some(1);
+        schedule(&mut timer, 0.75);
+        assert_eq!(timer.calls, 2); assert_eq!(timer.count, 0.5);
+        assert_eq!(timer.stores(), [0.75_f32.to_bits(), 0.5_f32.to_bits()]);
+    }
+
+    #[test]
+    fn caught_nested_failure_leaves_live_count_for_outer_deduction() {
+        let mut timer = Timer::new(0.0, 0.25);
+        timer.action = Some(|timer, index| if index == 0 {
+            timer.fail_at = Some(1); timer.nested(0.25); timer.fail_at = None;
+        });
+        schedule(&mut timer, 0.5);
+        assert_eq!(timer.calls, 4); assert_eq!(timer.count, 0.0);
+        assert_eq!(timer.ticks()[1], (0.25_f32.to_bits(), 0.75_f32.to_bits(), 1));
+        assert_eq!(timer.ticks()[2], (0.25_f32.to_bits(), 0.5_f32.to_bits(), 0));
+    }
+
+    #[test]
+    fn propagated_nested_failure_skips_both_unfinished_deductions() {
+        let mut timer = Timer::new(0.0, 0.25);
+        timer.action = Some(|timer, index| if index == 0 {
+            timer.fail_at = Some(1); timer.nested(0.25); timer.fail_at = Some(0);
+        });
+        schedule(&mut timer, 0.5);
+        assert_eq!(timer.calls, 2); assert_eq!(timer.count, 0.75);
+        assert_eq!(timer.stores(), [0.5_f32.to_bits(), 0.75_f32.to_bits()]);
+    }
+
+    #[test]
+    fn finite_backlog_has_no_arbitrary_tick_cap() {
+        let mut timer = Timer::new(0.0, 0.125);
+        schedule(&mut timer, 1025.0);
+        assert_eq!(timer.calls, 8200); assert_eq!(timer.count, 0.0);
+    }
+
+    #[test]
+    fn subnormal_steps_and_signed_zero_accumulation_keep_float_bits() {
+        let mut timer = Timer::new(0.0, f32::from_bits(1));
+        schedule(&mut timer, f32::from_bits(3));
+        assert_eq!(timer.calls, 3); assert_eq!(timer.stores(), [3, 2, 1, 0]);
+        let mut timer = Timer::new(-0.0, f32::NAN);
+        schedule(&mut timer, -0.0);
+        assert_eq!(timer.count.to_bits(), (-0.0_f32).to_bits()); assert_eq!(timer.calls, 0);
     }
 }

@@ -160,6 +160,11 @@
     <None Include="tools\ai-placement-diff\run.ps1" />
     <None Include="tools\ai-placement-diff\run.sh" />
     <None Include="tools\ai-placement-diff\mutate.ps1" />
+    <None Include="tools\ai-scheduler-diff\diff_main.cpp" />
+    <None Include="tools\ai-scheduler-diff\stubs.cpp" />
+    <None Include="tools\ai-scheduler-diff\run.ps1" />
+    <None Include="tools\ai-scheduler-diff\run.sh" />
+    <None Include="tools\ai-scheduler-diff\mutate.ps1" />
     <ClInclude Include="crates\hpl2-ffi\include\hpl2_rs.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

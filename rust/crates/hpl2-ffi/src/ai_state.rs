@@ -1,8 +1,8 @@
-//! Native AI state transitions and dispatch. Objects and vtables stay in C++.
+//! AI transitions, dispatch and scheduling. Objects, timers and vtables stay C++.
 
 #![allow(clippy::missing_safety_doc)]
 
-use hpl_ai::state_machine::{self, TransitionHost, UpdateHost};
+use hpl_ai::state_machine::{self, ScheduleHost, TransitionHost, UpdateHost};
 use std::ffi::c_void;
 
 /// Every callback is required and must not throw across Rust. Null state
@@ -21,7 +21,7 @@ pub struct HplAIStateTransitionHost {
     pub set_current: unsafe extern "C" fn(ctx: *mut c_void, state: *mut c_void),
 }
 
-/// Dispatches the selected state once into its native fixed-step update loop.
+/// Dispatches the selected state once into its fixed-step update loop.
 /// All callbacks are required; update catches and reports native exceptions.
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -68,6 +68,34 @@ pub unsafe extern "C" fn hpl_ai_state_change(id: i32, host: *const HplAIStateTra
 pub unsafe extern "C" fn hpl_ai_state_update(time: f32, host: *const HplAIStateUpdateHost) {
     let host = unsafe { host.read() };
     state_machine::update(&mut Update(host), time);
+}
+
+/// Every callback is required. Native timer storage is read/written at each
+/// original operation; on_update catches exceptions and returns false on failure.
+/// Each nested call uses its own host/exception slot and the same live state.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct HplAIStateScheduleHost {
+    pub ctx: *mut c_void,
+    pub time_count: unsafe extern "C" fn(ctx: *mut c_void) -> f32,
+    pub set_time_count: unsafe extern "C" fn(ctx: *mut c_void, count: f32),
+    pub update_step: unsafe extern "C" fn(ctx: *mut c_void) -> f32,
+    pub on_update: unsafe extern "C" fn(ctx: *mut c_void, step: f32) -> bool,
+}
+
+struct Schedule(HplAIStateScheduleHost);
+
+impl ScheduleHost for Schedule {
+    fn time_count(&self) -> f32 { unsafe { (self.0.time_count)(self.0.ctx) } }
+    fn set_time_count(&mut self, count: f32) { unsafe { (self.0.set_time_count)(self.0.ctx, count) } }
+    fn update_step(&self) -> f32 { unsafe { (self.0.update_step)(self.0.ctx) } }
+    fn on_update(&mut self, step: f32) -> bool { unsafe { (self.0.on_update)(self.0.ctx, step) } }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hpl_ai_state_schedule(time: f32, host: *const HplAIStateScheduleHost) {
+    let host = unsafe { host.read() };
+    state_machine::schedule(&mut Schedule(host), time);
 }
 
 #[cfg(test)]
@@ -223,5 +251,196 @@ mod tests {
             assert_eq!(native.events, [Event::Update(2, bits)]);
             assert_eq!(native.current, Some(2));
         }
+    }
+}
+
+#[cfg(test)]
+mod schedule_tests {
+    use super::*;
+
+    #[derive(Clone, Copy)]
+    enum Action {
+        None,
+        Change { count: f32, step: f32, success: bool },
+        Nested { time: f32, fail_inner: bool },
+    }
+    #[derive(Debug, PartialEq)]
+    enum Event {
+        Store(u32, u32),
+        Tick { step: u32, count: u32, depth: u32 },
+        NestedReturn(u32),
+    }
+    struct Native {
+        count: f32, step: f32, depth: u32, calls: usize, guarded: bool,
+        action: Action, events: Vec<Event>,
+    }
+    impl Native {
+        fn new(count: f32, step: f32) -> Self {
+            Self { count, step, depth: 0, calls: 0, guarded: false, action: Action::None, events: Vec::new() }
+        }
+        fn ticks(&self) -> Vec<(u32, u32, u32)> {
+            self.events.iter().filter_map(|event| match event {
+                Event::Tick { step, count, depth } => Some((*step, *count, *depth)), _ => None,
+            }).collect()
+        }
+    }
+    fn host(ctx: *mut c_void) -> HplAIStateScheduleHost {
+        unsafe extern "C" fn time_count(ctx: *mut c_void) -> f32 { unsafe { (*ctx.cast::<Native>()).count } }
+        unsafe extern "C" fn set_time_count(ctx: *mut c_void, count: f32) {
+            let native = unsafe { &mut *ctx.cast::<Native>() };
+            native.count = count;
+            native.events.push(Event::Store(count.to_bits(), native.depth));
+        }
+        unsafe extern "C" fn update_step(ctx: *mut c_void) -> f32 { unsafe { (*ctx.cast::<Native>()).step } }
+        unsafe extern "C" fn on_update(ctx: *mut c_void, step: f32) -> bool {
+            let action = {
+                let native = unsafe { &mut *ctx.cast::<Native>() };
+                native.calls += 1;
+                // Bound a broken fixture without panicking across extern "C".
+                if native.calls > 64 { native.guarded = true; return false; }
+                native.events.push(Event::Tick { step: step.to_bits(), count: native.count.to_bits(), depth: native.depth });
+                std::mem::replace(&mut native.action, Action::None)
+            };
+            match action {
+                Action::None => true,
+                Action::Change { count, step, success } => {
+                    let native = unsafe { &mut *ctx.cast::<Native>() };
+                    native.count = count; native.step = step;
+                    success
+                }
+                Action::Nested { time, fail_inner } => {
+                    {
+                        let native = unsafe { &mut *ctx.cast::<Native>() };
+                        native.depth += 1;
+                        if fail_inner { native.action = Action::Change { count: 0.875, step: 0.25, success: false }; }
+                    }
+                    // No Rust reference to Native survives this nested FFI call.
+                    // Returning true afterward models a native callback catching
+                    // the inner invocation's saved exception and continuing.
+                    unsafe { hpl_ai_state_schedule(time, &host(ctx)); }
+                    {
+                        let native = unsafe { &mut *ctx.cast::<Native>() };
+                        native.depth -= 1;
+                        native.events.push(Event::NestedReturn(native.count.to_bits()));
+                    }
+                    true
+                }
+            }
+        }
+        HplAIStateScheduleHost { ctx, time_count, set_time_count, update_step, on_update }
+    }
+    fn run(native: &mut Native, time: f32) {
+        unsafe { hpl_ai_state_schedule(time, &host((native as *mut Native).cast())); }
+        assert!(!native.guarded, "fixture exceeded its callback budget");
+    }
+
+    #[test]
+    fn schedule_ffi_publishes_accumulation_before_ticks_and_keeps_the_remainder() {
+        let mut native = Native::new(0.125, 0.5);
+        run(&mut native, 1.125);
+        assert_eq!(native.events, [Event::Store(1.25f32.to_bits(), 0),
+            Event::Tick { step: 0.5f32.to_bits(), count: 1.25f32.to_bits(), depth: 0 },
+            Event::Store(0.75f32.to_bits(), 0),
+            Event::Tick { step: 0.5f32.to_bits(), count: 0.75f32.to_bits(), depth: 0 },
+            Event::Store(0.25f32.to_bits(), 0)]);
+        run(&mut native, 0.25);
+        assert_eq!(native.count.to_bits(), 0.0f32.to_bits());
+        assert_eq!(native.calls, 3);
+    }
+
+    #[test]
+    fn schedule_ffi_rereads_count_and_step_after_a_successful_callback() {
+        let mut native = Native::new(0.0, 0.5);
+        native.action = Action::Change { count: 0.875, step: 0.25, success: true };
+        run(&mut native, 1.0);
+        assert_eq!(native.ticks(), [(0.5f32.to_bits(), 1.0f32.to_bits(), 0),
+            (0.25f32.to_bits(), 0.625f32.to_bits(), 0), (0.25f32.to_bits(), 0.375f32.to_bits(), 0)]);
+        assert_eq!(native.count, 0.125);
+    }
+
+    #[test]
+    fn schedule_ffi_failure_preserves_callback_edits_without_subtracting() {
+        let mut native = Native::new(0.0, 0.5);
+        native.action = Action::Change { count: 0.875, step: 0.25, success: false };
+        run(&mut native, 1.0);
+        assert_eq!(native.events, [Event::Store(1.0f32.to_bits(), 0),
+            Event::Tick { step: 0.5f32.to_bits(), count: 1.0f32.to_bits(), depth: 0 }]);
+        assert_eq!((native.count, native.step), (0.875, 0.25));
+        run(&mut native, 0.0);
+        assert_eq!((native.calls, native.count), (4, 0.125));
+    }
+
+    #[test]
+    fn schedule_ffi_nested_update_shares_the_published_count() {
+        let mut native = Native::new(0.0, 0.5);
+        native.action = Action::Nested { time: 0.25, fail_inner: false };
+        run(&mut native, 1.0);
+        assert_eq!(native.ticks(), [(0.5f32.to_bits(), 1.0f32.to_bits(), 0),
+            (0.5f32.to_bits(), 1.25f32.to_bits(), 1), (0.5f32.to_bits(), 0.75f32.to_bits(), 1)]);
+        assert!(native.events.contains(&Event::NestedReturn(0.25f32.to_bits())));
+        assert_eq!(native.count, -0.25);
+    }
+
+    #[test]
+    fn schedule_ffi_caught_inner_failure_does_not_stop_outer_subtraction() {
+        let mut native = Native::new(0.0, 0.5);
+        native.action = Action::Nested { time: 0.25, fail_inner: true };
+        run(&mut native, 1.0);
+        assert_eq!(native.ticks(), [(0.5f32.to_bits(), 1.0f32.to_bits(), 0),
+            (0.5f32.to_bits(), 1.25f32.to_bits(), 1), (0.25f32.to_bits(), 0.625f32.to_bits(), 0),
+            (0.25f32.to_bits(), 0.375f32.to_bits(), 0)]);
+        assert!(native.events.contains(&Event::NestedReturn(0.875f32.to_bits())));
+        assert_eq!(native.count, 0.125);
+    }
+
+    #[test]
+    fn schedule_ffi_forwards_step_bits_including_signed_zero_and_rescued_extremes() {
+        for bits in [0, 0x80000000, 1, 0x80000001, 0x3eaaaaab, 0xbeaaaaab, 0x7f800000, 0xff800000] {
+            let step = f32::from_bits(bits);
+            let mut native = Native::new(step, step);
+            native.action = Action::Change { count: 0.0, step: 1.0, success: true };
+            run(&mut native, -0.0);
+            assert_eq!(native.calls, 1);
+            assert_eq!(native.ticks()[0].0, bits);
+            assert_eq!(native.count, -1.0);
+        }
+    }
+
+    #[test]
+    fn schedule_ffi_ordered_comparison_and_infinite_subtraction_terminate() {
+        let nan = f32::from_bits(0x7fc12345);
+        for (count, step, elapsed) in [(nan, 0.25, 1.0), (0.5, nan, 0.0), (0.5, 0.25, nan)] {
+            let mut native = Native::new(count, step);
+            run(&mut native, elapsed);
+            assert_eq!(native.calls, 0);
+            assert_eq!(native.events.len(), 1);
+        }
+        for infinity in [f32::INFINITY, f32::NEG_INFINITY] {
+            let mut native = Native::new(infinity, infinity);
+            run(&mut native, 0.0);
+            assert_eq!(native.calls, 1);
+            assert_eq!(native.ticks()[0].0, infinity.to_bits());
+            assert!(native.count.is_nan());
+        }
+    }
+
+    #[test]
+    fn schedule_ffi_preserves_negative_elapsed_and_f32_rounding_at_each_store() {
+        let mut native = Native::new(0.125, 0.5);
+        run(&mut native, -0.375);
+        assert_eq!(native.count, -0.25);
+        assert_eq!(native.calls, 0);
+        run(&mut native, 0.75);
+        assert_eq!((native.count, native.calls), (0.0, 1));
+
+        let mut native = Native::new(16777216.0, f32::INFINITY);
+        run(&mut native, 1.0); run(&mut native, 1.0);
+        assert_eq!(native.count.to_bits(), 16777216.0f32.to_bits());
+        assert_eq!(native.calls, 0);
+
+        let mut native = Native::new(0.0, 0.1);
+        run(&mut native, 0.3);
+        assert_eq!(native.calls, 3);
+        assert_eq!(native.count.to_bits(), 0x32800000);
     }
 }
