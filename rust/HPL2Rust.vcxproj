@@ -98,6 +98,14 @@
     <None Include="crates\hpl-system\src\preprocess.rs" />
     <None Include="crates\hpl-system\src\sha1.rs" />
     <None Include="crates\hpl-system\src\string.rs" />
+    <None Include="crates\hpl-system\src\logic_timer.rs" />
+    <None Include="crates\hpl-system\src\platform.rs" />
+    <None Include="crates\hpl2-ffi\src\system_core.rs" />
+    <None Include="tools\system-core-diff\diff_main.cpp" />
+    <None Include="tools\system-core-diff\stubs.cpp" />
+    <None Include="tools\system-core-diff\run.sh" />
+    <None Include="tools\system-core-diff\run.ps1" />
+    <None Include="tools\system-core-diff\mutate.ps1" />
     <ClInclude Include="crates\hpl2-ffi\include\hpl2_rs.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

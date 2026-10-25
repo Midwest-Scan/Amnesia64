@@ -6,6 +6,8 @@
 //! | `cString`              | [`string`]       |
 //! | `SHA1`                 | [`sha1`]         |
 //! | `cPreprocessParser`    | [`preprocess`]   |
+//! | `cLogicTimer`          | [`logic_timer`]  |
+//! | `VideoComp`            | [`platform`]     |
 //!
 //! The C++ engine uses byte strings (`tString`, any 8-bit encoding) and
 //! `wchar_t` strings (`tWString`, UTF-16 code units on Windows, 32-bit on
@@ -22,6 +24,8 @@
 
 pub mod chars;
 pub mod crt;
+pub mod logic_timer;
+pub mod platform;
 pub mod preprocess;
 pub mod sha1;
 pub mod string;

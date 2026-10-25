@@ -16,6 +16,12 @@
     <Filter Include="crates\hpl2-ffi">
       <UniqueIdentifier>{f5e68517-f98c-5619-9951-70fa88110281}</UniqueIdentifier>
     </Filter>
+    <Filter Include="tools">
+      <UniqueIdentifier>{2d320bd2-63a5-4331-bf08-2d7229ebfa24}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="tools\system-core-diff">
+      <UniqueIdentifier>{4a0e84de-3471-4e8b-b01a-9abaeb94b376}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <None Include="build.cmd" />
@@ -160,6 +166,30 @@
     </None>
     <None Include="crates\hpl-system\src\string.rs">
       <Filter>crates\hpl-system</Filter>
+    </None>
+    <None Include="crates\hpl-system\src\logic_timer.rs">
+      <Filter>crates\hpl-system</Filter>
+    </None>
+    <None Include="crates\hpl-system\src\platform.rs">
+      <Filter>crates\hpl-system</Filter>
+    </None>
+    <None Include="crates\hpl2-ffi\src\system_core.rs">
+      <Filter>crates\hpl2-ffi</Filter>
+    </None>
+    <None Include="tools\system-core-diff\diff_main.cpp">
+      <Filter>tools\system-core-diff</Filter>
+    </None>
+    <None Include="tools\system-core-diff\stubs.cpp">
+      <Filter>tools\system-core-diff</Filter>
+    </None>
+    <None Include="tools\system-core-diff\run.sh">
+      <Filter>tools\system-core-diff</Filter>
+    </None>
+    <None Include="tools\system-core-diff\run.ps1">
+      <Filter>tools\system-core-diff</Filter>
+    </None>
+    <None Include="tools\system-core-diff\mutate.ps1">
+      <Filter>tools\system-core-diff</Filter>
     </None>
     <ClInclude Include="crates\hpl2-ffi\include\hpl2_rs.h">
       <Filter>crates\hpl2-ffi</Filter>

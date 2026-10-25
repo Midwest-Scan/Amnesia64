@@ -21,6 +21,8 @@
 #define HPL_LOGICTIMER_H
 
 
+struct HplLogicTimerState;
+
 namespace hpl {
 
 	class iLowLevelSystem;
@@ -79,6 +81,10 @@ namespace hpl {
 		void SetSpeedMul(float afX){ mfSpeedMul = afX;}
 		
 	private:
+		// Numeric snapshots for Rust; the C++ member layout and ownership stay unchanged.
+		HplLogicTimerState ToRustState() const;
+		void FromRustState(const HplLogicTimerState& aState);
+
 		void Update();
 
 		double mlLocalTime;

@@ -19,6 +19,7 @@
 
 #include "system/Platform.h"
 #include "system/LowLevelSystem.h"
+#include "system/RustBridge.h"
 
 #include "graphics/GraphicsTypes.h"
 #include "math/MathTypes.h"
@@ -35,6 +36,9 @@ namespace hpl
 
 	bool VideoComp::operator() (const cVideoMode& aVM1, const cVideoMode& aVM2) const
 	{
+#if HPL2_RUST_SYSTEM
+		return hpl_platform_video_mode_less(aVM1.mlDisplay, ToRs(aVM1.mvScreenSize), aVM2.mlDisplay, ToRs(aVM2.mvScreenSize));
+#else
 		//Log("Comparing video mode (1) %dx%d/%d-%d to (2) %dx%d/%d-%d\n", aVM1.mvScreenSize.x, aVM1.mvScreenSize.y, 
 																			//aVM1.mlBitsPerPixel, aVM1.mlRefreshRate,
 		//													aVM2.mvScreenSize.x, aVM2.mvScreenSize.y, 
@@ -88,6 +92,7 @@ namespace hpl
 		//Log("(1) & (2) are equal\n");
 
 		return false;
+#endif
 	}
 
 	//-----------------------------------------------------------------------

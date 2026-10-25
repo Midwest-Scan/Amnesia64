@@ -8,6 +8,26 @@
 use hpl_math::bounding_volume::Extents;
 use hpl_math::frustum::{FrustumProjection, FrustumRef, ProjectionType};
 use hpl_math::{Color, Matrixf, Planef, Quaternion, Rect2f, Rect2l, Spheref, TriEdge, TriangleData, Vector2f, Vector2l, Vector3f, Vector3l};
+use hpl_system::logic_timer::LogicTimer;
+
+/// Copy of `cLogicTimer`'s numeric state, NOT a view of the C++ class.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct HplLogicTimerState {
+    pub local_time: f64,
+    pub local_time_add: f64,
+    pub speed_mul: f64,
+    pub max_updates: i32,
+    pub update_count: i32,
+}
+
+const _: () = {
+    assert!(std::mem::offset_of!(HplLogicTimerState, local_time) == std::mem::offset_of!(LogicTimer, local_time));
+    assert!(std::mem::offset_of!(HplLogicTimerState, local_time_add) == std::mem::offset_of!(LogicTimer, local_time_add));
+    assert!(std::mem::offset_of!(HplLogicTimerState, speed_mul) == std::mem::offset_of!(LogicTimer, speed_mul));
+    assert!(std::mem::offset_of!(HplLogicTimerState, max_updates) == std::mem::offset_of!(LogicTimer, max_updates));
+    assert!(std::mem::offset_of!(HplLogicTimerState, update_count) == std::mem::offset_of!(LogicTimer, update_count));
+};
 
 /// `cVector2f`
 #[repr(C)]
@@ -206,6 +226,7 @@ macro_rules! mirror {
 }
 
 mirror! {
+    HplLogicTimerState => LogicTimer,
     HplVector2f => Vector2f,
     HplVector2l => Vector2l,
     HplVector3f => Vector3f,

@@ -32,7 +32,7 @@
 #define HPL2_RUST_MATH 1
 #endif
 
-// cString, cPreprocessParser
+// cString, cPreprocessParser, cLogicTimer, VideoComp
 #ifndef HPL2_RUST_SYSTEM
 #define HPL2_RUST_SYSTEM 1
 #endif
@@ -75,6 +75,14 @@ namespace hpl {
 	// Layout checks: the Hpl* mirrors must match the engine classes exactly,
 	// since arrays of engine objects are passed to Rust by pointer.
 
+	// Numeric snapshot only: cLogicTimer is copied field-by-field, never aliased.
+	static_assert(sizeof(HplLogicTimerState) == 32, "logic timer state layout");
+	static_assert(alignof(HplLogicTimerState) == alignof(double), "logic timer state alignment");
+	static_assert(offsetof(HplLogicTimerState, local_time) == 0, "logic timer local time");
+	static_assert(offsetof(HplLogicTimerState, local_time_add) == 8, "logic timer step");
+	static_assert(offsetof(HplLogicTimerState, speed_mul) == 16, "logic timer speed");
+	static_assert(offsetof(HplLogicTimerState, max_updates) == 24, "logic timer cap");
+	static_assert(offsetof(HplLogicTimerState, update_count) == 28, "logic timer count");
 	static_assert(sizeof(cVector2f) == sizeof(HplVector2f), "cVector2f layout");
 	static_assert(sizeof(cVector2l) == sizeof(HplVector2l), "cVector2l layout");
 	static_assert(sizeof(cVector3f) == sizeof(HplVector3f), "cVector3f layout");

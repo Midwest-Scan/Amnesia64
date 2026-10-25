@@ -237,6 +237,24 @@ typedef struct HplPreprocessHost {
   bool (*read_include)(void *ctx, struct HplWStr path, struct HplStrOut out);
 } HplPreprocessHost;
 
+// Platform clock callback. C++ converts its native unsigned long to double.
+typedef double (*HplLogicTimerClock)(void *ctx);
+
+// The engine clock stays in C++; Rust controls when it is read.
+typedef struct HplLogicTimerHost {
+  void *ctx;
+  HplLogicTimerClock application_time;
+} HplLogicTimerHost;
+
+// Copy of `cLogicTimer`'s numeric state, NOT a view of the C++ class.
+typedef struct HplLogicTimerState {
+  double local_time;
+  double local_time_add;
+  double speed_mul;
+  int32_t max_updates;
+  int32_t update_count;
+} HplLogicTimerState;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -1066,6 +1084,34 @@ bool hpl_preprocess_parse(struct HplStr input,
                           struct HplWStr dir,
                           const struct HplPreprocessHost *host,
                           struct HplStrOut output);
+
+void hpl_logic_timer_init(int32_t rate,
+                          struct HplLogicTimerHost host,
+                          struct HplLogicTimerState *out);
+
+void hpl_logic_timer_reset(struct HplLogicTimerState *state, struct HplLogicTimerHost host);
+
+bool hpl_logic_timer_want_update(struct HplLogicTimerState *state, struct HplLogicTimerHost host);
+
+void hpl_logic_timer_end_update_loop(struct HplLogicTimerState *state,
+                                     struct HplLogicTimerHost host);
+
+void hpl_logic_timer_set_updates_per_sec(struct HplLogicTimerState *state,
+                                         int32_t rate,
+                                         struct HplLogicTimerHost host);
+
+void hpl_logic_timer_set_max_updates(struct HplLogicTimerState *state, int32_t max);
+
+int32_t hpl_logic_timer_get_updates_per_sec(const struct HplLogicTimerState *state);
+
+float hpl_logic_timer_get_step_size(const struct HplLogicTimerState *state);
+
+void hpl_logic_timer_update(struct HplLogicTimerState *state);
+
+bool hpl_platform_video_mode_less(int32_t display_a,
+                                  struct HplVector2l size_a,
+                                  int32_t display_b,
+                                  struct HplVector2l size_b);
 
 #ifdef __cplusplus
 }  // extern "C"
