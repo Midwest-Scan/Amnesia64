@@ -40,6 +40,9 @@
     <Filter Include="tools\ai-compile-diff">
       <UniqueIdentifier>{990e8603-db3f-42b1-a9d9-31c686898f0f}</UniqueIdentifier>
     </Filter>
+    <Filter Include="tools\ai-state-diff">
+      <UniqueIdentifier>{39456f1f-a1fa-48f2-a889-524fba294a60}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <None Include="build.cmd" />
@@ -307,6 +310,27 @@
     </None>
     <None Include="tools\ai-compile-diff\mutate.ps1">
       <Filter>tools\ai-compile-diff</Filter>
+    </None>
+    <None Include="crates\hpl-ai\src\state_machine.rs">
+      <Filter>crates\hpl-ai</Filter>
+    </None>
+    <None Include="crates\hpl2-ffi\src\ai_state.rs">
+      <Filter>crates\hpl2-ffi</Filter>
+    </None>
+    <None Include="tools\ai-state-diff\diff_main.cpp">
+      <Filter>tools\ai-state-diff</Filter>
+    </None>
+    <None Include="tools\ai-state-diff\stubs.cpp">
+      <Filter>tools\ai-state-diff</Filter>
+    </None>
+    <None Include="tools\ai-state-diff\run.ps1">
+      <Filter>tools\ai-state-diff</Filter>
+    </None>
+    <None Include="tools\ai-state-diff\run.sh">
+      <Filter>tools\ai-state-diff</Filter>
+    </None>
+    <None Include="tools\ai-state-diff\mutate.ps1">
+      <Filter>tools\ai-state-diff</Filter>
     </None>
     <ClInclude Include="crates\hpl2-ffi\include\hpl2_rs.h">
       <Filter>crates\hpl2-ffi</Filter>

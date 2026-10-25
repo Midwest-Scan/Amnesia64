@@ -42,7 +42,7 @@
 #define HPL2_RUST_GENERATE 1
 #endif
 
-// AStar search core and AI node/grid helpers (ownership and physics stay in C++)
+// AStar, node/grid/connection helpers and state transitions (ownership stays C++)
 #ifndef HPL2_RUST_AI
 #define HPL2_RUST_AI 1
 #endif

@@ -138,6 +138,29 @@ typedef struct HplAINodeGridHost {
   bool (*push_node)(void *ctx, size_t index, void *node);
 } HplAINodeGridHost;
 
+// Every callback is required and must not throw across Rust. Null state
+// handles represent absence. Leave/enter/warning return false on a saved
+// exception; C++ rethrows only after this invocation returns.
+typedef struct HplAIStateTransitionHost {
+  void *ctx;
+  void *(*current)(void *ctx);
+  int32_t (*state_id)(void *ctx, void *state);
+  void *(*find_state)(void *ctx, int32_t id);
+  bool (*warn_missing)(void *ctx, int32_t id);
+  bool (*leave)(void *ctx, void *state, int32_t next_id);
+  bool (*enter)(void *ctx, void *state, int32_t previous_id);
+  void (*set_current)(void *ctx, void *state);
+} HplAIStateTransitionHost;
+
+// Dispatches the selected state once into its native fixed-step update loop.
+// All callbacks are required; update catches and reports native exceptions.
+typedef struct HplAIStateUpdateHost {
+  void *ctx;
+  bool (*active)(void *ctx);
+  void *(*current)(void *ctx);
+  bool (*update)(void *ctx, void *state, float time);
+} HplAIStateUpdateHost;
+
 // Receives one log line (UTF-8, no trailing newline). Must be thread safe.
 typedef void (*HplLogCallback)(int32_t level, const char *message);
 
@@ -379,6 +402,10 @@ bool hpl_ai_node_iterator_increment(struct HplVector2l position,
                                     struct HplVector2l start,
                                     struct HplVector2l end,
                                     struct HplVector2l *out);
+
+void hpl_ai_state_change(int32_t id, const struct HplAIStateTransitionHost *host);
+
+void hpl_ai_state_update(float time, const struct HplAIStateUpdateHost *host);
 
 // Initialise the Rust side of the engine. Call once at startup, before any
 // other `hpl_*` function if logging is wanted. Safe to call again to

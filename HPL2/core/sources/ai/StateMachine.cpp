@@ -20,6 +20,11 @@
 #include "ai/StateMachine.h"
 
 #include "system/LowLevelSystem.h"
+#include "system/RustBridge.h"
+
+#if HPL2_RUST_AI
+#include <exception>
+#endif
 
 
 namespace hpl {
@@ -87,9 +92,39 @@ namespace hpl {
 	
 	void cStateMachine::Update(float afTime)
 	{
+#if HPL2_RUST_AI
+		struct cStateUpdateContext
+		{
+			cStateMachine *mpMachine;
+			std::exception_ptr mException;
+		};
+		cStateUpdateContext context = { this, std::exception_ptr() };
+		HplAIStateUpdateHost host = {
+			&context,
+			[](void *apCtx) -> bool {
+				return RsBool(static_cast<cStateUpdateContext*>(apCtx)->mpMachine->mbActive);
+			},
+			[](void *apCtx) -> void* {
+				return static_cast<cStateUpdateContext*>(apCtx)->mpMachine->mpCurrentState;
+			},
+			[](void *apCtx, void *apState, float afTimeStep) -> bool {
+				cStateUpdateContext *pCtx = static_cast<cStateUpdateContext*>(apCtx);
+				try
+				{
+					// Keep the state's live fixed-step loop and virtual dispatch native.
+					static_cast<iAIState*>(apState)->Update(afTimeStep);
+					return true;
+				}
+				catch(...) { pCtx->mException = std::current_exception(); return false; }
+			}
+		};
+		hpl_ai_state_update(afTime, &host);
+		if(context.mException) std::rethrow_exception(context.mException);
+#else
 		if(mbActive== false || mpCurrentState==NULL) return;
 		
 		mpCurrentState->Update(afTime);
+#endif
 	}
 
 	//-----------------------------------------------------------------------
@@ -110,6 +145,58 @@ namespace hpl {
 
 	void cStateMachine::ChangeState(int alId)
 	{
+#if HPL2_RUST_AI
+		struct cStateTransitionContext
+		{
+			cStateMachine *mpMachine;
+			std::exception_ptr mException;
+		};
+		cStateTransitionContext context = { this, std::exception_ptr() };
+		HplAIStateTransitionHost host = {
+			&context,
+			[](void *apCtx) -> void* {
+				return static_cast<cStateTransitionContext*>(apCtx)->mpMachine->mpCurrentState;
+			},
+			[](void *, void *apState) -> int32_t {
+				return static_cast<iAIState*>(apState)->GetId();
+			},
+			[](void *apCtx, int32_t alStateId) -> void* {
+				return static_cast<cStateTransitionContext*>(apCtx)->mpMachine->GetState(alStateId);
+			},
+			[](void *apCtx, int32_t alStateId) -> bool {
+				cStateTransitionContext *pCtx = static_cast<cStateTransitionContext*>(apCtx);
+				try
+				{
+					Warning("State %d does not exist!\n",alStateId);
+					return true;
+				}
+				catch(...) { pCtx->mException = std::current_exception(); return false; }
+			},
+			[](void *apCtx, void *apState, int32_t alNextId) -> bool {
+				cStateTransitionContext *pCtx = static_cast<cStateTransitionContext*>(apCtx);
+				try
+				{
+					static_cast<iAIState*>(apState)->OnLeaveState(alNextId);
+					return true;
+				}
+				catch(...) { pCtx->mException = std::current_exception(); return false; }
+			},
+			[](void *apCtx, void *apState, int32_t alPreviousId) -> bool {
+				cStateTransitionContext *pCtx = static_cast<cStateTransitionContext*>(apCtx);
+				try
+				{
+					static_cast<iAIState*>(apState)->OnEnterState(alPreviousId);
+					return true;
+				}
+				catch(...) { pCtx->mException = std::current_exception(); return false; }
+			},
+			[](void *apCtx, void *apState) {
+				static_cast<cStateTransitionContext*>(apCtx)->mpMachine->mpCurrentState = static_cast<iAIState*>(apState);
+			}
+		};
+		hpl_ai_state_change(alId, &host);
+		if(context.mException) std::rethrow_exception(context.mException);
+#else
 		if(alId == mpCurrentState->GetId()) return;
 		
 		iAIState *pState = GetState(alId);
@@ -121,6 +208,7 @@ namespace hpl {
 		pState->OnEnterState(mpCurrentState==NULL ? -1 : mpCurrentState->GetId());
 
 		mpCurrentState = pState;
+#endif
 	}
 	
 	//-----------------------------------------------------------------------
