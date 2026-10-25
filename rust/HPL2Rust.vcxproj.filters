@@ -46,6 +46,9 @@
     <Filter Include="tools\astar-path-diff">
       <UniqueIdentifier>{e1151bec-214e-43b7-b0fa-ecc9f2c6bb6e}</UniqueIdentifier>
     </Filter>
+    <Filter Include="tools\ai-placement-diff">
+      <UniqueIdentifier>{F913FF60-E0DD-47F0-9B0C-3162AAABE00A}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <None Include="build.cmd" />
@@ -355,6 +358,27 @@
     </None>
     <None Include="tools\astar-path-diff\mutate.ps1">
       <Filter>tools\astar-path-diff</Filter>
+    </None>
+    <None Include="crates\hpl-ai\src\node_generator.rs">
+      <Filter>crates\hpl-ai</Filter>
+    </None>
+    <None Include="crates\hpl2-ffi\src\ai_placement.rs">
+      <Filter>crates\hpl2-ffi</Filter>
+    </None>
+    <None Include="tools\ai-placement-diff\diff_main.cpp">
+      <Filter>tools\ai-placement-diff</Filter>
+    </None>
+    <None Include="tools\ai-placement-diff\stubs.cpp">
+      <Filter>tools\ai-placement-diff</Filter>
+    </None>
+    <None Include="tools\ai-placement-diff\run.ps1">
+      <Filter>tools\ai-placement-diff</Filter>
+    </None>
+    <None Include="tools\ai-placement-diff\run.sh">
+      <Filter>tools\ai-placement-diff</Filter>
+    </None>
+    <None Include="tools\ai-placement-diff\mutate.ps1">
+      <Filter>tools\ai-placement-diff</Filter>
     </None>
     <ClInclude Include="crates\hpl2-ffi\include\hpl2_rs.h">
       <Filter>crates\hpl2-ffi</Filter>

@@ -153,6 +153,13 @@
     <None Include="tools\astar-path-diff\run.ps1" />
     <None Include="tools\astar-path-diff\run.sh" />
     <None Include="tools\astar-path-diff\mutate.ps1" />
+    <None Include="crates\hpl-ai\src\node_generator.rs" />
+    <None Include="crates\hpl2-ffi\src\ai_placement.rs" />
+    <None Include="tools\ai-placement-diff\diff_main.cpp" />
+    <None Include="tools\ai-placement-diff\stubs.cpp" />
+    <None Include="tools\ai-placement-diff\run.ps1" />
+    <None Include="tools\ai-placement-diff\run.sh" />
+    <None Include="tools\ai-placement-diff\mutate.ps1" />
     <ClInclude Include="crates\hpl2-ffi\include\hpl2_rs.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

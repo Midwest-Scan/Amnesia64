@@ -25,6 +25,11 @@
 #include "system/System.h"
 #include "system/String.h"
 #include "system/Platform.h"
+#include "system/RustBridge.h"
+
+#if HPL2_RUST_AI
+#include <exception>
+#endif
 
 #include "resources/Resources.h"
 #include "resources/FileSearcher.h"
@@ -146,6 +151,102 @@ namespace hpl {
 		}
         		
 		
+#if HPL2_RUST_AI
+		cPhysicsBodyIterator bodyIt = pPhysicsWorld->GetBodyIterator();
+		struct cPlacementContext
+		{
+			cAINodeGenerator *mpGenerator;
+			iPhysicsWorld *mpPhysicsWorld;
+			cAINodeGeneratorParams *mpOriginalParams;
+			cPhysicsBodyIterator *mpBodyIt;
+			tTempAiNodeListIt mNodeIt;
+			bool mbNodeStarted;
+			std::exception_ptr mException;
+		};
+		cPlacementContext context;
+		context.mpGenerator = this;
+		context.mpPhysicsWorld = pPhysicsWorld;
+		context.mpOriginalParams = apParams;
+		context.mpBodyIt = &bodyIt;
+		context.mbNodeStarted = false;
+		HplAINodePlacementHost host = {
+			&context,
+			[](void *apCtx, bool *apPresent, HplVector3f *apMin, HplVector3f *apMax) -> bool {
+				cPlacementContext *pCtx = static_cast<cPlacementContext*>(apCtx);
+				try
+				{
+					*apPresent = pCtx->mpBodyIt->HasNext();
+					if(!*apPresent) return true;
+					iPhysicsBody *pBody = pCtx->mpBodyIt->Next();
+					// Faithful: two virtual bounds calls, copying min before the second.
+					cVector3f vMin = pBody->GetBoundingVolume()->GetMin();
+					cVector3f vMax = pBody->GetBoundingVolume()->GetMax();
+					*apMin = ToRs(vMin);
+					*apMax = ToRs(vMax);
+					return true;
+				}
+				catch(...) { pCtx->mException = std::current_exception(); return false; }
+			},
+			[](void *apCtx) -> float {
+				return static_cast<cPlacementContext*>(apCtx)->mpGenerator->mpParams->mfGridSize;
+			},
+			[](void *apCtx) -> HplVector3f {
+				return ToRs(static_cast<cPlacementContext*>(apCtx)->mpGenerator->mpParams->mvMinPos);
+			},
+			[](void *apCtx) -> HplVector3f {
+				return ToRs(static_cast<cPlacementContext*>(apCtx)->mpGenerator->mpParams->mvMaxPos);
+			},
+			[](void *apCtx, HplVector3f avStart, HplVector3f avEnd) -> bool {
+				cPlacementContext *pCtx = static_cast<cPlacementContext*>(apCtx);
+				try
+				{
+					pCtx->mpPhysicsWorld->CastRay(pCtx->mpGenerator,FromRs(avStart),FromRs(avEnd),false,false,true);
+					return true;
+				}
+				catch(...) { pCtx->mException = std::current_exception(); return false; }
+			},
+			[](void *apCtx) -> float {
+				// Faithful: grid steps use the original argument even after reentry.
+				return static_cast<cPlacementContext*>(apCtx)->mpOriginalParams->mfGridSize;
+			},
+			[](void *apCtx) -> void* {
+				cPlacementContext *pCtx = static_cast<cPlacementContext*>(apCtx);
+				if(!pCtx->mbNodeStarted)
+				{
+					pCtx->mNodeIt = pCtx->mpGenerator->mpNodeList->begin();
+					pCtx->mbNodeStarted = true;
+				}
+				else ++pCtx->mNodeIt;
+				// Faithful: advance only after all rays, observing newly appended nodes.
+				return pCtx->mNodeIt == pCtx->mpGenerator->mpNodeList->end() ? NULL : &*pCtx->mNodeIt;
+			},
+			[](void *apCtx) -> float {
+				return static_cast<cPlacementContext*>(apCtx)->mpGenerator->mpParams->mfMinWallDist;
+			},
+			[](void *apCtx, void *apNode, HplVector3f avOffset, bool *apHit, float *apDistance) -> bool {
+				cPlacementContext *pCtx = static_cast<cPlacementContext*>(apCtx);
+				try
+				{
+					cTempAiNode &Node = *static_cast<cTempAiNode*>(apNode);
+					gCollideRayCallback.mbIntersected = false;
+					// Keep the native start reference and the shared callback for reentry.
+					pCtx->mpPhysicsWorld->CastRay(&gCollideRayCallback,Node.mvPos,Node.mvPos + FromRs(avOffset),true,false,true);
+					*apHit = gCollideRayCallback.mbIntersected;
+					if(*apHit) *apDistance = gCollideRayCallback.mfDist;
+					return true;
+				}
+				catch(...) { pCtx->mException = std::current_exception(); return false; }
+			},
+			[](void *, void *apNode) -> HplVector3f {
+				return ToRs(static_cast<cTempAiNode*>(apNode)->mvPos);
+			},
+			[](void *, void *apNode, HplVector3f avPosition) {
+				static_cast<cTempAiNode*>(apNode)->mvPos = FromRs(avPosition);
+			}
+		};
+		hpl_ai_node_generator_place(&host);
+		if(context.mException) std::rethrow_exception(context.mException);
+#else
 		/////////////////////////////////
 		// Get the size of the world
 		cPhysicsBodyIterator it = pPhysicsWorld->GetBodyIterator();
@@ -252,6 +353,8 @@ namespace hpl {
 			}
 		}
 
+#endif
+
 		///////////////////////////////////////////
 		// Save to file
 
@@ -266,6 +369,45 @@ namespace hpl {
 	
 	bool cAINodeGenerator::OnIntersect(iPhysicsBody *pBody,cPhysicsRayParams *apParams)
 	{
+#if HPL2_RUST_AI
+		struct cIntersectionContext
+		{
+			cAINodeGenerator *mpGenerator;
+			iPhysicsBody *mpBody;
+			cPhysicsRayParams *mpRayParams;
+			std::exception_ptr mException;
+		};
+		cIntersectionContext context = {this, pBody, apParams, std::exception_ptr()};
+		HplAINodeIntersectionHost host = {
+			&context,
+			[](void *apCtx, float *apMass) -> bool {
+				cIntersectionContext *pCtx = static_cast<cIntersectionContext*>(apCtx);
+				try { *apMass = pCtx->mpBody->GetMass(); return true; }
+				catch(...) { pCtx->mException = std::current_exception(); return false; }
+			},
+			[](void *apCtx) -> HplVector3f {
+				return ToRs(static_cast<cIntersectionContext*>(apCtx)->mpRayParams->mvPoint);
+			},
+			[](void *apCtx) -> float {
+				return static_cast<cIntersectionContext*>(apCtx)->mpGenerator->mpParams->mfHeightFromGround;
+			},
+			[](void *apCtx, HplVector3f avPosition) -> bool {
+				cIntersectionContext *pCtx = static_cast<cIntersectionContext*>(apCtx);
+				try
+				{
+					cAINodeGenerator *pGenerator = pCtx->mpGenerator;
+					// Faithful: capture ID before allocation, then increment the live ID.
+					pGenerator->mpNodeList->push_back(cTempAiNode(FromRs(avPosition),"",pGenerator->mlIDCount));
+					pGenerator->mlIDCount++;
+					return true;
+				}
+				catch(...) { pCtx->mException = std::current_exception(); return false; }
+			}
+		};
+		bool bResult = hpl_ai_node_generator_intersect(&host);
+		if(context.mException) std::rethrow_exception(context.mException);
+		return bResult;
+#else
 		if(pBody->GetMass() != 0) return true;
 
 		iPhysicsWorld *pPhysicsWorld = mpWorld->GetPhysicsWorld();
@@ -276,6 +418,7 @@ namespace hpl {
 		mlIDCount++;
 
 		return true;
+#endif
 	}
 
 	//-----------------------------------------------------------------------

@@ -164,6 +164,37 @@ typedef struct HplAStarPathHost {
   void *(*parent)(void *ctx, void *search);
 } HplAStarPathHost;
 
+// All callbacks are required. False success denotes a saved native exception;
+// presence is a separate out bool. Null node handles mean iterator exhaustion.
+// No native reference is borrowed into Rust across a callback.
+typedef struct HplAINodePlacementHost {
+  void *ctx;
+  bool (*next_bounds)(void *ctx,
+                      bool *present,
+                      struct HplVector3f *minimum,
+                      struct HplVector3f *maximum);
+  float (*grid_size)(void *ctx);
+  struct HplVector3f (*minimum)(void *ctx);
+  struct HplVector3f (*maximum)(void *ctx);
+  bool (*cast_down)(void *ctx, struct HplVector3f start, struct HplVector3f end);
+  float (*step_size)(void *ctx);
+  void *(*next_node)(void *ctx);
+  float (*wall_distance)(void *ctx);
+  bool (*cast_wall)(void *ctx, void *node, struct HplVector3f offset, bool *hit, float *distance);
+  struct HplVector3f (*position)(void *ctx, void *node);
+  void (*set_position)(void *ctx, void *node, struct HplVector3f position);
+} HplAINodePlacementHost;
+
+// GetMass remains a virtual native call; point/height are read only afterward.
+// Append retains native temporary construction, insertion and ID increment.
+typedef struct HplAINodeIntersectionHost {
+  void *ctx;
+  bool (*mass)(void *ctx, float *mass);
+  struct HplVector3f (*point)(void *ctx);
+  float (*height)(void *ctx);
+  bool (*append)(void *ctx, struct HplVector3f position);
+} HplAINodeIntersectionHost;
+
 // Every callback is required and must not throw across Rust. Null state
 // handles represent absence. Leave/enter/warning return false on a saved
 // exception; C++ rethrows only after this invocation returns.
@@ -430,6 +461,10 @@ bool hpl_ai_node_iterator_increment(struct HplVector2l position,
                                     struct HplVector2l *out);
 
 bool hpl_astar_get_path(const struct HplAStarPathHost *host);
+
+void hpl_ai_node_generator_place(const struct HplAINodePlacementHost *host);
+
+bool hpl_ai_node_generator_intersect(const struct HplAINodeIntersectionHost *host);
 
 void hpl_ai_state_change(int32_t id, const struct HplAIStateTransitionHost *host);
 

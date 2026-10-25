@@ -12,6 +12,7 @@ pub mod ai;
 pub mod ai_compile;
 pub mod ai_grid;
 pub mod ai_path;
+pub mod ai_placement;
 pub mod ai_state;
 pub mod bridge;
 pub mod generate;

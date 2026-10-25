@@ -10,7 +10,7 @@ moving on.
 | `HPL2/core/*/math` | **Ported** (cMath, cQuaternion, cFrustum, cBoundingVolume, cCRC) | `HPL2_RUST_MATH` |
 | `HPL2/core/*/system` | **Partly ported** (cString, cPreprocessParser, cLogicTimer, VideoComp; SHA1 in Rust only) | `HPL2_RUST_SYSTEM` |
 | `HPL2/core/*/generate` | **Algorithms ported** (cVoxelMap sizing, writes, debug traversal; C++ allocation/factory shell retained) | `HPL2_RUST_GENERATE` |
-| `HPL2/core/*/ai` | **Partly ported** (AStar core and path setup/output, node edge metrics, grid build/lookup, iterator stepping, Compile connection filtering/trimming, state transitions and update dispatch; ownership and physics remain C++) | `HPL2_RUST_AI` |
+| `HPL2/core/*/ai` | **Partly ported** (AStar core and path setup/output, node edge metrics, grid build/lookup, iterator stepping, Compile connection filtering/trimming, state transitions and update dispatch, node generation placement; ownership and physics remain C++) | `HPL2_RUST_AI` |
 | everything else | C++ | – |
 
 The Lux project lives under `amnesia/src/game/` in this checkout. Editors
@@ -52,7 +52,7 @@ rust/
     hpl-math/           Port of HPL2/core/{include,sources}/math. Pure Rust, no C ABI.
     hpl-system/         Strings, shader preprocessor, SHA1, logic timer, video mode ordering
     hpl-generate/       Voxel allocation arithmetic, flat indexing and live debug traversal
-    hpl-ai/             AStar search/setup/output, node/grid/connection and state transition/dispatch decisions
+    hpl-ai/             AStar search/setup/output, node/grid/connection/placement and state transition/dispatch decisions
     hpl2-ffi/           The C ABI: builds hpl2_rs.lib and generates include/hpl2_rs.h
   tools/math-diff/      Differential test: original C++ vs. Rust, bit for bit
   tools/system-diff/    The same for cString and cPreprocessParser
@@ -63,6 +63,7 @@ rust/
   tools/ai-compile-diff/ Real Compile/FreePath with controlled rays, live edits, trimming and exceptions
   tools/ai-state-diff/   Real StateMachine with derived callbacks, reentry, live IDs and exception traces
   tools/astar-path-diff/ Real GetPath and navigation grid/visibility, live endpoints and output callbacks
+  tools/ai-placement-diff/ Real Generate/OnIntersect, body bounds, controlled rays, live parameters and node lists
 ```
 
 C++ side:
@@ -78,6 +79,7 @@ HPL2/core/sources/generate/VoxelMap.cpp per-function forwards; allocation/owners
 HPL2/core/sources/ai/AStar.cpp         five forwards; native sets, allocations and iterator lifetimes retained
 HPL2/core/sources/ai/AINodeContainer.cpp edge/grid/Compile forwards; ownership, lists, sorting and physics retained
 HPL2/core/sources/ai/StateMachine.cpp  transition/dispatch forwards; virtual states and scheduling retained
+HPL2/core/sources/ai/AINodeGenerator.cpp placement/intersection forwards; physics, lists and file caching retained
 ```
 
 ## How a module is ported
@@ -168,6 +170,15 @@ FFI conventions:
   receive a search handle and call native `push_back(search->mpAINode)`, retaining
   its field reference through allocation. Rust reads the parent only afterward.
   The host shares the existing per-call exception-stop/rethrow convention.
+* `HplAINodePlacementHost` keeps the original physics world and parameter argument
+  alongside the live generator. Bounds use two native virtual reads per body;
+  grid steps read the original argument while wall thresholds use live state.
+  Wall callbacks take an opaque node plus an offset, preserving the native
+  position reference passed to CastRay and the shared collision callback.
+  Node iteration advances only after all four rays, so appended nodes remain
+  visible. `HplAINodeIntersectionHost` reads virtual mass before point/height;
+  native append retains temporary construction, allocation and the subsequent
+  live ID increment. Both hosts use per-call exception-stop/rethrow slots.
 * All engine Rust code is exported from the single `hpl2-ffi` crate: a
   program can only link one Rust static library.
 * `panic = "abort"`; a panic is reported through `hpl::Error` first.
@@ -831,9 +842,108 @@ successive graph and direct paths. `cLuxEnemyPathfinder::MoveTo` calls this API;
 cached navigation data is sufficient, without rebuilding node connections.
 Gameplay validation remains for the owner.
 
-Recommended next slice: audit AINodeGenerator's placement logic, keeping physics
-queries and world ownership native. The native state scheduler is also a later
-candidate, with its callback-rescued steps and live counter semantics preserved.
+AINodeGenerator's placement logic is covered by the following slice.
+
+## AI node generation placement slice
+
+`hpl-ai/src/node_generator.rs` ports the placement portion of
+`cAINodeGenerator::Generate` and the mass/height decisions of `OnIntersect`.
+`hpl2-ffi/src/ai_placement.rs` adds `hpl_ai_node_generator_place` and
+`hpl_ai_node_generator_intersect` under the existing `HPL2_RUST_AI` switch.
+Both original source regions remain intact under `#else`; removing the forwards
+and their added includes reconstructs the original file byte-for-byte.
+
+Native C++ retains initialization, cache lookup/load/save, body and node iterators,
+physics calls, the shared wall-ray callback, node construction/allocation and ID
+increments. No class layout, language standard, dependency or phase-2 ownership
+change is introduced. File serialization quirks remain unchanged, including the
+duplicate `Name` attribute in SaveToFile and returning after a failed cache load.
+
+The original was audited before implementation. Preserved quirks:
+
+* Every body contributes bounds, including dynamic bodies. Each body makes two
+  virtual GetBoundingVolume calls, copying minimum before fetching maximum.
+  Ordered comparisons retain equal signed zeros, ignore NaNs and preserve the
+  original +/-100000 sentinels for empty/unusual worlds.
+* Bounds shrink only in x/z, then clamp each component independently. They are
+  never normalized. Only z gates grid entry; an inverted x range still casts
+  one ray per row. Traversal is x first, then z, with f32 arithmetic throughout.
+* The physics world is captured once. Bounds use live generator parameters;
+  grid increments reread the original parameter argument after each ray, even
+  after a nested Generate changes the generator's parameter pointer. No blanket
+  guard rejects steps that a later callback can repair.
+* Existing nodes are never cleared, and IDs restart at zero. All old and new
+  nodes receive wall checks. Node iteration advances after four rays, so list
+  appends during those rays are visited when the native iterator would see them.
+* Wall offsets snapshot distance after placement, in +X/-X/+Z/-Z order.
+  Thresholds and positions remain live after each ray. Native CastRay receives
+  the node's position by reference and retains the shared collision callback,
+  including nested calls overwriting its result.
+* Pushback uses a full three-component multiply and add, retaining zero-times-
+  infinity/NaN and signed-zero behavior. Intersection placement likewise adds
+  zero to x/z rather than copying those components unchanged.
+* Virtual GetMass runs before reading point/height. Either signed zero accepts;
+  nonzero, infinite and NaN masses skip. Native append captures the ID before
+  allocation and increments the live counter only after successful insertion.
+* Native exceptions stop immediately and rethrow after Rust returns, preserving
+  partial nodes, callback changes and counter state. No rollback is added.
+
+**No new deviations.** Uninitialized generator use, invalidated pointers or
+iterators, switching node lists during iteration, signed ID overflow, concurrent
+shared-callback access and unrescued nonterminating grid loops remain outside
+the defined input corpus. Cache/XML error paths are outside this placement slice.
+
+`tools/ai-placement-diff/run.ps1 <repo> [<pristine-repo>]` compares original,
+switch-off, Rust release and Rust debug on Windows x64. `run.sh` is the Linux
+companion. Baseline `1c3821f` was archived before edits to
+`rust/target/ai-placement-pristine`; archive `HPL2/core` from that commit to
+recreate it. The harness links production AINodeGenerator.cpp, using normally
+constructed world/resources objects and concrete physics/body fixtures.
+Fixed bounding volumes and controlled rays supply inputs; native iteration,
+placement, filtering and node insertion are not replaced. Empty world paths
+keep file I/O unreachable. Traces include float bits, node order and IDs,
+virtual calls, allocations, exceptions and logs.
+
+The corpus runs 2,098 Generate calls (2,048 seeded cases plus fixed cases),
+5,915 vertical rays, 41,026 wall rays, 99,638 intersection callbacks, 8 controlled
+exceptions and 3 nested calls. It covers boundaries, retained nodes, live
+parameters/positions, repeated and nested generation, zero/negative steps rescued
+by callbacks, nonfinite values on terminating paths, allocation failures and
+partial output. Tests never invalidate live objects or cross list iterators.
+`tools/ai-placement-diff/mutate.ps1 <repo>` requires actual output mismatches,
+restores exact source bytes and rebuilds both Rust profiles in `finally`. Run it
+without concurrent Rust edits or builds. Logs stay under
+`rust/target/ai-placement-diff/`.
+
+Verification for this slice (Rust 1.97.0, native Windows x64 MSVC):
+
+* Workspace unit tests: **202 passed** (97 AI, 13 generate, 33 math, 27 system,
+  32 FFI; 31 added by this slice).
+* `cargo clippy --workspace --all-targets --locked -- -D warnings`: clean.
+* Differential: **429,618 lines, 4-way identical** against `1c3821f`.
+* Mutation check: **12/12 caught, 0 equivalent mutants**, all actual output
+  mismatches. The existing finite-value cases catch double-precision wall
+  correction through changed intermediate rounding. Exact source bytes were
+  restored, both Rust libraries rebuilt and the clean four-way comparison
+  repeated successfully.
+* Full `Amnesia.sln` **Debug x64 and Release x64 passed**, including Lux and
+  all six editor/tool projects, using normal process access for MSVC.
+* Linux/WSL was not run. The Linux runner is supplied without claiming a pass.
+  Unit tests/Clippy used process-only `CARGO_INCREMENTAL=0`; no toolchain pin,
+  project compiler setting or language standard changed. Source/project line
+  endings were preserved; the generated header was restored to CRLF after the
+  final builds.
+
+Reload the Rust project in Visual Studio (or restart VS), then build Debug and
+Release x64. Load a save and observe enemy patrol/pursuit around obstacles as a
+general regression check. The only generator caller found is the engine's
+`cWorld::GenerateAINodes` wrapper; Lux does not call it, so ordinary gameplay
+does not directly validate this slice. The public Generate differential harness
+provides that coverage. Gameplay validation remains for the owner.
+
+Recommended next slice: the native AI state scheduler, preserving live counters,
+callback-rescued steps and nested update semantics. Keep file caching and class
+ownership native unless a separate scope is agreed.
 
 ## Troubleshooting
 
