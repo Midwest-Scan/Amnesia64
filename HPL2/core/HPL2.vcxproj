@@ -57,6 +57,9 @@
   </ImportGroup>
   <ImportGroup Label="Shared">
   </ImportGroup>
+  <ImportGroup Label="PropertySheets">
+    <Import Project="..\..\rust\HPL2Rust.props" />
+  </ImportGroup>
   <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
@@ -176,6 +179,7 @@
     <ClInclude Include="include\system\SerializeClass.h" />
     <ClInclude Include="include\system\SHA1.h" />
     <ClInclude Include="include\system\String.h" />
+    <ClInclude Include="include\system\RustBridge.h" />
     <ClInclude Include="include\system\System.h" />
     <ClInclude Include="include\system\SystemTypes.h" />
     <ClInclude Include="include\system\Thread.h" />
@@ -505,6 +509,7 @@
     <ClCompile Include="sources\system\SerializeClass.cpp" />
     <ClCompile Include="sources\system\SHA1.cpp" />
     <ClCompile Include="sources\system\String.cpp" />
+    <ClCompile Include="sources\system\RustBridge.cpp" />
     <ClCompile Include="sources\system\System.cpp" />
     <ClCompile Include="sources\system\Thread.cpp" />
     <ClCompile Include="sources\engine\Engine.cpp" />
@@ -739,6 +744,7 @@
     <ClCompile Include="sources\math\CRC.cpp" />
     <ClCompile Include="sources\math\Frustum.cpp" />
     <ClCompile Include="sources\math\Math.cpp" />
+    <ClCompile Include="sources\math\MathRust.cpp" />
     <ClCompile Include="sources\math\MathTypes.cpp" />
     <ClCompile Include="sources\math\MeshTypes.cpp" />
     <ClCompile Include="sources\math\Quaternion.cpp" />

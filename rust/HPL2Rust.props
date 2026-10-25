@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Shared settings for the Rust port (hpl2_rs.lib).
+
+  Imported by HPL2.vcxproj, which bundles hpl2_rs.lib into HPL2.lib, and by
+  the executables that link HPL2 (Lux and the tools), so their Debug builds
+  use the debug C runtime for the Rust code too.
+-->
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <HplRustDir>$(MSBuildThisFileDirectory)</HplRustDir>
+    <HplRustTriple Condition="'$(Platform)'=='Win32'">i686-pc-windows-msvc</HplRustTriple>
+    <HplRustTriple Condition="'$(Platform)'!='Win32'">x86_64-pc-windows-msvc</HplRustTriple>
+    <HplRustProfileDir Condition="'$(Configuration)'=='Release'">release</HplRustProfileDir>
+    <HplRustProfileDir Condition="'$(Configuration)'!='Release'">debug</HplRustProfileDir>
+    <HplRustLibDir>$(HplRustDir)target\$(HplRustTriple)\$(HplRustProfileDir)\</HplRustLibDir>
+    <HplRustIncludeDir>$(HplRustDir)crates\hpl2-ffi\include</HplRustIncludeDir>
+  </PropertyGroup>
+
+  <!-- HPL2 (static library): hpl2_rs.h on the include path, hpl2_rs.lib merged into HPL2.lib -->
+  <ItemDefinitionGroup Condition="'$(ConfigurationType)'=='StaticLibrary'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(HplRustIncludeDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Lib>
+      <AdditionalDependencies>hpl2_rs.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(HplRustLibDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Lib>
+  </ItemDefinitionGroup>
+
+  <!--
+    Clear error instead of LNK1181 when the Rust library is missing, e.g. if
+    the HPL2Rust project did not run or cargo failed.
+  -->
+  <Target Name="HplRustCheckLib" BeforeTargets="Lib" Condition="'$(ConfigurationType)'=='StaticLibrary'">
+    <Error Condition="!Exists('$(HplRustLibDir)hpl2_rs.lib')"
+           Text="hpl2_rs.lib was not found in $(HplRustLibDir). Build the HPL2Rust project first (it runs cargo) and check its output for errors." />
+  </Target>
+
+  <!--
+    Executables, Debug: Rust always requests the release CRT (msvcrt.lib).
+    Ignore it so the Rust code links against the debug CRT like the C++ code.
+  -->
+  <ItemDefinitionGroup Condition="'$(ConfigurationType)'=='Application' And '$(UseDebugLibraries)'=='true'">
+    <Link>
+      <IgnoreSpecificDefaultLibraries>msvcrt.lib;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
+    </Link>
+  </ItemDefinitionGroup>
+</Project>

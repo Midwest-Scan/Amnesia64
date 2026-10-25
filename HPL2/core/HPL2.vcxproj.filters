@@ -111,6 +111,9 @@
     <ClInclude Include="include\system\String.h">
       <Filter>System</Filter>
     </ClInclude>
+    <ClInclude Include="include\system\RustBridge.h">
+      <Filter>System</Filter>
+    </ClInclude>
     <ClInclude Include="include\system\System.h">
       <Filter>System</Filter>
     </ClInclude>
@@ -1092,6 +1095,9 @@
     <ClCompile Include="sources\system\String.cpp">
       <Filter>System</Filter>
     </ClCompile>
+    <ClCompile Include="sources\system\RustBridge.cpp">
+      <Filter>System</Filter>
+    </ClCompile>
     <ClCompile Include="sources\system\System.cpp">
       <Filter>System</Filter>
     </ClCompile>
@@ -1792,6 +1798,9 @@
       <Filter>Math</Filter>
     </ClCompile>
     <ClCompile Include="sources\math\Math.cpp">
+      <Filter>Math</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\math\MathRust.cpp">
       <Filter>Math</Filter>
     </ClCompile>
     <ClCompile Include="sources\math\MathTypes.cpp">

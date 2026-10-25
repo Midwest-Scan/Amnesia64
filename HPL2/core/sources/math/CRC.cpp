@@ -18,6 +18,7 @@
  */
 
 #include "math/CRC.h"
+#include "system/RustBridge.h"
 
 //----------------------------------------
 
@@ -27,6 +28,11 @@ namespace hpl {
 
 	void cCRCTable::Init (tCRCKey aKey)
 	{
+#if HPL2_RUST_MATH
+		if (aKey == mKey) return;
+		mKey = aKey;
+		hpl_crc_init_table(mTable, mKey);
+#else
 		if (aKey == mKey) return;
 		
 		mKey = aKey;
@@ -45,21 +51,29 @@ namespace hpl {
 			}
 			mTable [i] = reg;
 		}
+#endif
 	}
 
 	//----------------------------------------
 
 	void cCRC::PutByte (unsigned aByte)
 	{
+#if HPL2_RUST_MATH
+		mRegister = hpl_crc_put_byte(mTable.mTable, mRegister, aByte);
+#else
 		unsigned top = mRegister >> 24;
 		top ^= aByte;
 		mRegister = (mRegister << 8) ^ mTable [top];
+#endif
 	}
 
 	//----------------------------------------
 
 	void cCRC::PutData(char *apData, size_t alSize)
 	{
+#if HPL2_RUST_MATH
+		mRegister = hpl_crc_put_data(mTable.mTable, mRegister, (const uint8_t*)apData, alSize);
+#else
 		size_t lCount = alSize;
 		unsigned char *pCurrentData = (unsigned char*)apData;
 		while(lCount)
@@ -69,6 +83,7 @@ namespace hpl {
 			++pCurrentData;
 			--lCount;
 		}
+#endif
 	}
 	
 	//----------------------------------------

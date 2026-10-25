@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="crates">
+      <UniqueIdentifier>{42115ffc-2d78-5087-9270-d7d535b54766}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="crates\hpl-math">
+      <UniqueIdentifier>{dac2ebd2-268e-55c4-94db-be415197defb}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="crates\hpl-math\math">
+      <UniqueIdentifier>{b93bbf57-bde0-52bc-8674-1c392a92dba4}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="crates\hpl2-ffi">
+      <UniqueIdentifier>{f5e68517-f98c-5619-9951-70fa88110281}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="build.cmd" />
+    <None Include="Cargo.toml" />
+    <None Include="rust-toolchain.toml" />
+    <None Include="README.md" />
+    <None Include="HPL2Rust.props" />
+    <None Include="crates\hpl-math\Cargo.toml">
+      <Filter>crates\hpl-math</Filter>
+    </None>
+    <None Include="crates\hpl2-ffi\Cargo.toml">
+      <Filter>crates\hpl2-ffi</Filter>
+    </None>
+    <None Include="crates\hpl2-ffi\build.rs">
+      <Filter>crates\hpl2-ffi</Filter>
+    </None>
+    <None Include="crates\hpl2-ffi\cbindgen.toml">
+      <Filter>crates\hpl2-ffi</Filter>
+    </None>
+    <None Include="crates\hpl-math\src\bounding_volume.rs">
+      <Filter>crates\hpl-math</Filter>
+    </None>
+    <None Include="crates\hpl-math\src\color.rs">
+      <Filter>crates\hpl-math</Filter>
+    </None>
+    <None Include="crates\hpl-math\src\consts.rs">
+      <Filter>crates\hpl-math</Filter>
+    </None>
+    <None Include="crates\hpl-math\src\crc.rs">
+      <Filter>crates\hpl-math</Filter>
+    </None>
+    <None Include="crates\hpl-math\src\frustum.rs">
+      <Filter>crates\hpl-math</Filter>
+    </None>
+    <None Include="crates\hpl-math\src\lib.rs">
+      <Filter>crates\hpl-math</Filter>
+    </None>
+    <None Include="crates\hpl-math\src\math\clip.rs">
+      <Filter>crates\hpl-math\math</Filter>
+    </None>
+    <None Include="crates\hpl-math\src\math\color_conv.rs">
+      <Filter>crates\hpl-math\math</Filter>
+    </None>
+    <None Include="crates\hpl-math\src\math\intersect.rs">
+      <Filter>crates\hpl-math\math</Filter>
+    </None>
+    <None Include="crates\hpl-math\src\math\matrix_ops.rs">
+      <Filter>crates\hpl-math\math</Filter>
+    </None>
+    <None Include="crates\hpl-math\src\math\mod.rs">
+      <Filter>crates\hpl-math\math</Filter>
+    </None>
+    <None Include="crates\hpl-math\src\math\plane.rs">
+      <Filter>crates\hpl-math\math</Filter>
+    </None>
+    <None Include="crates\hpl-math\src\math\polygon.rs">
+      <Filter>crates\hpl-math\math</Filter>
+    </None>
+    <None Include="crates\hpl-math\src\math\quat.rs">
+      <Filter>crates\hpl-math\math</Filter>
+    </None>
+    <None Include="crates\hpl-math\src\math\random.rs">
+      <Filter>crates\hpl-math\math</Filter>
+    </None>
+    <None Include="crates\hpl-math\src\math\scalar.rs">
+      <Filter>crates\hpl-math\math</Filter>
+    </None>
+    <None Include="crates\hpl-math\src\math\spherical.rs">
+      <Filter>crates\hpl-math\math</Filter>
+    </None>
+    <None Include="crates\hpl-math\src\math\triangle.rs">
+      <Filter>crates\hpl-math\math</Filter>
+    </None>
+    <None Include="crates\hpl-math\src\math\vec2.rs">
+      <Filter>crates\hpl-math\math</Filter>
+    </None>
+    <None Include="crates\hpl-math\src\math\vec3.rs">
+      <Filter>crates\hpl-math\math</Filter>
+    </None>
+    <None Include="crates\hpl-math\src\matrix.rs">
+      <Filter>crates\hpl-math</Filter>
+    </None>
+    <None Include="crates\hpl-math\src\mesh_types.rs">
+      <Filter>crates\hpl-math</Filter>
+    </None>
+    <None Include="crates\hpl-math\src\pid.rs">
+      <Filter>crates\hpl-math</Filter>
+    </None>
+    <None Include="crates\hpl-math\src\quaternion.rs">
+      <Filter>crates\hpl-math</Filter>
+    </None>
+    <None Include="crates\hpl-math\src\spring.rs">
+      <Filter>crates\hpl-math</Filter>
+    </None>
+    <None Include="crates\hpl-math\src\types.rs">
+      <Filter>crates\hpl-math</Filter>
+    </None>
+    <None Include="crates\hpl-math\src\util.rs">
+      <Filter>crates\hpl-math</Filter>
+    </None>
+    <None Include="crates\hpl-math\src\vector.rs">
+      <Filter>crates\hpl-math</Filter>
+    </None>
+    <None Include="crates\hpl2-ffi\src\bridge.rs">
+      <Filter>crates\hpl2-ffi</Filter>
+    </None>
+    <None Include="crates\hpl2-ffi\src\geometry.rs">
+      <Filter>crates\hpl2-ffi</Filter>
+    </None>
+    <None Include="crates\hpl2-ffi\src\lib.rs">
+      <Filter>crates\hpl2-ffi</Filter>
+    </None>
+    <None Include="crates\hpl2-ffi\src\math.rs">
+      <Filter>crates\hpl2-ffi</Filter>
+    </None>
+    <None Include="crates\hpl2-ffi\src\misc.rs">
+      <Filter>crates\hpl2-ffi</Filter>
+    </None>
+    <None Include="crates\hpl2-ffi\src\types.rs">
+      <Filter>crates\hpl2-ffi</Filter>
+    </None>
+    <ClInclude Include="crates\hpl2-ffi\include\hpl2_rs.h">
+      <Filter>crates\hpl2-ffi</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>

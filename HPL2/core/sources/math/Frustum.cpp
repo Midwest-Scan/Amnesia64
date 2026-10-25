@@ -24,8 +24,37 @@
 #include "graphics/LowLevelGraphics.h"
 #include "scene/RenderableContainer.h"
 
+#include "system/RustBridge.h"
+
 
 namespace hpl {
+
+#if HPL2_RUST_MATH
+	//////////////////////////////////////////////////////////////////////////
+	// RUST BRIDGE
+	//////////////////////////////////////////////////////////////////////////
+
+	//-----------------------------------------------------------------------
+
+	// Borrowed view of a frustum's geometry for the Rust collision code.
+	static HplFrustumView MakeRustFrustumView(const cPlanef *apPlanes, const cVector3f *apVertices, const cSpheref &aSphere,
+												cBoundingVolume &aBV, const bool &abInfFarPlane)
+	{
+		HplFrustumView view;
+		view.planes = RsPtr(apPlanes);
+		view.vertices = RsPtr(apVertices);
+		view.sphere = ToRs(aSphere);
+		view.bv_min = ToRs(aBV.GetMin());
+		view.bv_max = ToRs(aBV.GetMax());
+		view.inf_far_plane = RsBool(abInfFarPlane);
+		return view;
+	}
+
+	#define HPL_RUST_FRUSTUM_VIEW(pFrustum) \
+		MakeRustFrustumView((pFrustum)->mPlane, (pFrustum)->mvVertices, (pFrustum)->mBoundingSphere, (pFrustum)->mBoundingVolume, (pFrustum)->mbInfFarPlane)
+
+	//-----------------------------------------------------------------------
+#endif
 
 	//////////////////////////////////////////////////////////////////////////
 	// CONSTRUCTORS
@@ -104,6 +133,10 @@ namespace hpl {
 
 	bool cFrustum::CollidePoint(const cVector3f& avPoint)
 	{
+#if HPL2_RUST_MATH
+		HplFrustumView view = HPL_RUST_FRUSTUM_VIEW(this);
+		return hpl_frustum_collide_point(&view, ToRs(avPoint));
+#else
 		////////////////////////
 		//Check with Bounding volume
 		if(cMath::CheckPointInBVIntersection(avPoint, mBoundingVolume)==false)
@@ -123,6 +156,7 @@ namespace hpl {
 			}
 		}
 		return true;
+#endif
 	}
 	
 	//-----------------------------------------------------------------------
@@ -130,6 +164,11 @@ namespace hpl {
 
 	eCollision cFrustum::CollideBoundingVolume(cBoundingVolume* apBV)
 	{
+#if HPL2_RUST_MATH
+		HplFrustumView view = HPL_RUST_FRUSTUM_VIEW(this);
+		return (eCollision)hpl_frustum_collide_bounding_volume(&view, ToRs(apBV->GetWorldCenter()), apBV->GetRadius(),
+																	ToRs(apBV->GetMin()), ToRs(apBV->GetMax()));
+#else
 		//Check if the BV is in the Frustum sphere.
 		if(CollideFustrumSphere(apBV->GetWorldCenter(),apBV->GetRadius()) == eCollision_Outside)
 		{
@@ -146,12 +185,18 @@ namespace hpl {
 		}
 
 		return ret;
+#endif
 	}
 
 	//-----------------------------------------------------------------------
 
 	eCollision cFrustum::CollideNode(iRenderableContainerNode* apNode)
 	{
+#if HPL2_RUST_MATH
+		HplFrustumView view = HPL_RUST_FRUSTUM_VIEW(this);
+		return (eCollision)hpl_frustum_collide_bounding_volume(&view, ToRs(apNode->GetCenter()), apNode->GetRadius(),
+																	ToRs(apNode->GetMin()), ToRs(apNode->GetMax()));
+#else
 		//Check if the BV is in the Frustum sphere.
 		if(CollideFustrumSphere(apNode->GetCenter(),apNode->GetRadius()) == eCollision_Outside)
 		{
@@ -168,12 +213,18 @@ namespace hpl {
 		}
 
 		return ret;
+#endif
 	}
 
 	//-----------------------------------------------------------------------
 
 	eCollision cFrustum::CollideFrustum(cFrustum *apFrustum)
 	{
+#if HPL2_RUST_MATH
+		HplFrustumView view = HPL_RUST_FRUSTUM_VIEW(this);
+		HplFrustumView other = HPL_RUST_FRUSTUM_VIEW(apFrustum);
+		return (eCollision)hpl_frustum_collide_frustum(&view, &other);
+#else
 		/////////////////////////////
 		//BV Collision
 		if(cMath::CheckBVIntersection(mBoundingVolume, apFrustum->mBoundingVolume)==false)
@@ -203,12 +254,17 @@ namespace hpl {
 		}*/
 		
 		return eCollision_Intersect;
+#endif
 	}
 
 	//-----------------------------------------------------------------------
 
 	bool cFrustum::CheckSphereNearPlaneIntersection(const cVector3f &avCenter, float afRadius)
 	{
+#if HPL2_RUST_MATH
+		HplFrustumView view = HPL_RUST_FRUSTUM_VIEW(this);
+		return hpl_frustum_check_sphere_near_plane_intersection(&view, ToRs(avCenter), afRadius);
+#else
 		//////////////////////////////
 		// Sphere vs near plane (needed?)
 		if(cMath::CheckPlaneSphereCollision(GetPlane(eFrustumPlane_Near), avCenter, afRadius)!= eCollision_Intersect)
@@ -243,12 +299,17 @@ namespace hpl {
         		
 
 		return true;
+#endif
 	}
 
 	//-----------------------------------------------------------------------
 
 	bool cFrustum::CheckAABBNearPlaneIntersection(const cVector3f &avMin, const cVector3f &avMax)
 	{
+#if HPL2_RUST_MATH
+		HplFrustumView view = HPL_RUST_FRUSTUM_VIEW(this);
+		return hpl_frustum_check_aabb_near_plane_intersection(&view, ToRs(avMin), ToRs(avMax));
+#else
 		//////////////////////////////
 		// AABB vs Near Plane
 		if(cMath::CheckPlaneAABBCollision(GetPlane(eFrustumPlane_Near), avMin, avMax)!= eCollision_Intersect)
@@ -268,12 +329,18 @@ namespace hpl {
 		if(cMath::CheckPointsAABBPlanesCollision(mvVertices, 4, avMin, avMax)!=eCollision_Outside) return true;
 
 		return false;
+#endif
 	}
 
 	//-----------------------------------------------------------------------
 
 	bool cFrustum::CheckBVNearPlaneIntersection(cBoundingVolume* apBV)
 	{
+#if HPL2_RUST_MATH
+		HplFrustumView view = HPL_RUST_FRUSTUM_VIEW(this);
+		return hpl_frustum_check_bv_near_plane_intersection(&view, ToRs(apBV->GetWorldCenter()), apBV->GetRadius(),
+																ToRs(apBV->GetMin()), ToRs(apBV->GetMax()));
+#else
 		//////////////////////////////
 		// BV vs Near Plane
 		if(cMath::CheckPlaneBVCollision(GetPlane(eFrustumPlane_Near), *apBV)!= eCollision_Intersect)
@@ -297,12 +364,18 @@ namespace hpl {
 		if(cMath::CheckPointsAABBPlanesCollision(mvVertices, 4, apBV->GetMin(), apBV->GetMax())!=eCollision_Outside) return true;
 
 		return false;
+#endif
 	}
 
 	//-----------------------------------------------------------------------
 
 	bool cFrustum::CheckFrustumNearPlaneIntersection(cFrustum* apFrustum)
 	{
+#if HPL2_RUST_MATH
+		HplFrustumView view = HPL_RUST_FRUSTUM_VIEW(this);
+		HplFrustumView other = HPL_RUST_FRUSTUM_VIEW(apFrustum);
+		return hpl_frustum_check_frustum_near_plane_intersection(&view, &other);
+#else
 		const cPlanef& nearPlane = GetPlane(eFrustumPlane_Near);
 
 		//////////////////////////////
@@ -343,12 +416,17 @@ namespace hpl {
 
 
 		return true;
+#endif
 	}
 	
 	//-----------------------------------------------------------------------
 
 	bool cFrustum::CheckLineIntersection(const cVector3f& avStart, const cVector3f &avEnd, cVector3f &avIntersection)
 	{
+#if HPL2_RUST_MATH
+		HplFrustumView view = HPL_RUST_FRUSTUM_VIEW(this);
+		return hpl_frustum_check_line_intersection(&view, ToRs(avStart), ToRs(avEnd), RsPtr(&avIntersection));
+#else
 		float fClosestT = -1;
 		
 		//////////////////////////////
@@ -374,6 +452,7 @@ namespace hpl {
 		}
 		
 		return fClosestT >=0;
+#endif
 	}
 	
 	//-----------------------------------------------------------------------
@@ -386,6 +465,10 @@ namespace hpl {
 
 	eCollision cFrustum::CollideFustrumSphere(const cVector3f& avCenter, float afRadius)
 	{
+#if HPL2_RUST_MATH
+		HplFrustumView view = HPL_RUST_FRUSTUM_VIEW(this);
+		return (eCollision)hpl_frustum_collide_frustum_sphere(&view, ToRs(avCenter), afRadius);
+#else
 		float fRadiusSum = mBoundingSphere.r + afRadius;
 		cVector3f vSepAxis = mBoundingSphere.center - avCenter;
 		if(vSepAxis.SqrLength() > (fRadiusSum * fRadiusSum))
@@ -394,12 +477,17 @@ namespace hpl {
 		}
 
 		return eCollision_Intersect;
+#endif
 	}
 
 	//-----------------------------------------------------------------------
 
 	eCollision cFrustum::CollideSphere(const cVector3f& avCenter, float afRadius, int alMaxPlanes)
 	{
+#if HPL2_RUST_MATH
+		HplFrustumView view = HPL_RUST_FRUSTUM_VIEW(this);
+		return (eCollision)hpl_frustum_collide_sphere(&view, ToRs(avCenter), afRadius, alMaxPlanes);
+#else
 		int lPlanes = cMath::Max(mbInfFarPlane? 5 : 6, alMaxPlanes);
 		for(int i=0; i<lPlanes; i++)
 		{
@@ -415,11 +503,16 @@ namespace hpl {
 		}
 		
 		return eCollision_Inside;
+#endif
 	}
 	//-----------------------------------------------------------------------
 
 	eCollision cFrustum::CollideAABB(const cVector3f& avMin,const cVector3f& avMax, int alMaxPlanes)
 	{
+#if HPL2_RUST_MATH
+		HplFrustumView view = HPL_RUST_FRUSTUM_VIEW(this);
+		return (eCollision)hpl_frustum_collide_aabb(&view, ToRs(avMin), ToRs(avMax));
+#else
 		const cVector3f& vMax = avMax;
 		const cVector3f& vMin = avMin;
 
@@ -449,12 +542,24 @@ namespace hpl {
 
 		return eCollision_Intersect;
 		//return cMath::CheckPointsPlanesCollision(&vCorners[0], 8, &mPlane[0], mbInfFarPlane ? 5 : 6);
+#endif
 	}
 
 	//-----------------------------------------------------------------------
 	
 	void cFrustum::UpdateSphere()
 	{
+#if HPL2_RUST_MATH
+		HplFrustumProjection proj;
+		proj.proj = *RsPtr(m_mtxProj);
+		proj.view = *RsPtr(m_mtxView);
+		proj.near_plane = mfNearPlane;
+		proj.far_plane = mfFarPlane;
+		proj.fov = mfFOV;
+		proj.aspect = mfAspect;
+		proj.projection_type = (int32_t)mProjectionType;
+		mBoundingSphere = FromRs(hpl_frustum_compute_bounding_sphere(&proj, ToRs(mvOrigin), ToRs(mvViewSize)));
+#else
 		//////////////////////////////////////////////
 		// Perspective projection
 		if(mProjectionType == eProjectionType_Perspective)
@@ -508,12 +613,16 @@ namespace hpl {
 			mBoundingSphere = cSpheref(vCenter,fRadius);
 		}
 
+#endif
 	}
 
 	//-----------------------------------------------------------------------
 	
 	void cFrustum::UpdatePlanes(cMatrixf* apCustomFarProjMtx )
 	{
+#if HPL2_RUST_MATH
+		hpl_frustum_compute_planes(RsPtr(m_mtxViewProj), RsPtr(m_mtxView), apCustomFarProjMtx ? RsPtr(*apCustomFarProjMtx) : NULL, RsPtr(mPlane));
+#else
 		//Left
 		mPlane[eFrustumPlane_Left] = cPlanef(	m_mtxViewProj.m[3][0] + m_mtxViewProj.m[0][0],
 												m_mtxViewProj.m[3][1] + m_mtxViewProj.m[0][1],
@@ -566,6 +675,7 @@ namespace hpl {
 		{
 			mPlane[i].Normalize();
 		}
+#endif
 	}
 
 	//-----------------------------------------------------------------------
@@ -581,6 +691,10 @@ namespace hpl {
 
 	void cFrustum::UpdateVertices()
 	{
+#if HPL2_RUST_MATH
+		//NOTE: Does not work with infinite far plane!
+		hpl_frustum_update_vertices(RsPtr(mPlane), RsBool(mbObliqueNearPlane), ToRs(mvOrigin), RsPtr(mvVertices));
+#else
 		//NOTE: Does not work with infinite far plane!
 
 		cMath::PlaneIntersectionPoint(mPlane[eFrustumPlane_Near],mPlane[eFrustumPlane_Right], mPlane[eFrustumPlane_Top], mvVertices[0]);
@@ -640,12 +754,18 @@ namespace hpl {
 				}
 			}
 		}
+#endif
 	}
 
 	//-----------------------------------------------------------------------
 
 	void cFrustum::UpdateBV()
 	{
+#if HPL2_RUST_MATH
+		HplVector3f vMin, vMax;
+		hpl_frustum_compute_bounds(RsPtr(mvVertices), &vMin, &vMax);
+		mBoundingVolume.SetLocalMinMax(FromRs(vMin), FromRs(vMax));
+#else
 		cVector3f vMin = mvVertices[0];
 		cVector3f vMax = mvVertices[0];
 
@@ -662,6 +782,7 @@ namespace hpl {
 		}
 
 		mBoundingVolume.SetLocalMinMax(vMin, vMax);
+#endif
 	}
 	
 	//-----------------------------------------------------------------------

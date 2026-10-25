@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>16.0</VCProjectVersion>
+    <ProjectGuid>{e64311fa-48a8-4012-a49f-494a97518705}</ProjectGuid>
+    <Keyword>MakeFileProj</Keyword>
+    <RootNamespace>HPL2Rust</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Makefile</ConfigurationType>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Debug'">true</UseDebugLibraries>
+    <UseDebugLibraries Condition="'$(Configuration)'=='Release'">false</UseDebugLibraries>
+    <PlatformToolset>v145</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="HPL2Rust.props" />
+  </ImportGroup>
+  <PropertyGroup>
+    <!-- cargo decides what to rebuild, so it runs on every build (a no-op build takes well under a second). -->
+    <NMakeBuildCommandLine>call "$(MSBuildThisFileDirectory)build.cmd" build $(Configuration) $(Platform)</NMakeBuildCommandLine>
+    <NMakeReBuildCommandLine>call "$(MSBuildThisFileDirectory)build.cmd" rebuild $(Configuration) $(Platform)</NMakeReBuildCommandLine>
+    <NMakeCleanCommandLine>call "$(MSBuildThisFileDirectory)build.cmd" clean $(Configuration) $(Platform)</NMakeCleanCommandLine>
+    <NMakeOutput>$(HplRustLibDir)hpl2_rs.lib</NMakeOutput>
+    <NMakeIncludeSearchPath>$(HplRustIncludeDir)</NMakeIncludeSearchPath>
+    <OutDir>$(HplRustLibDir)</OutDir>
+    <IntDir>$(MSBuildThisFileDirectory)target\vs\$(Platform)\$(Configuration)\</IntDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="build.cmd" />
+    <None Include="Cargo.toml" />
+    <None Include="rust-toolchain.toml" />
+    <None Include="README.md" />
+    <None Include="HPL2Rust.props" />
+    <None Include="crates\hpl-math\Cargo.toml" />
+    <None Include="crates\hpl2-ffi\Cargo.toml" />
+    <None Include="crates\hpl2-ffi\build.rs" />
+    <None Include="crates\hpl2-ffi\cbindgen.toml" />
+    <None Include="crates\hpl-math\src\bounding_volume.rs" />
+    <None Include="crates\hpl-math\src\color.rs" />
+    <None Include="crates\hpl-math\src\consts.rs" />
+    <None Include="crates\hpl-math\src\crc.rs" />
+    <None Include="crates\hpl-math\src\frustum.rs" />
+    <None Include="crates\hpl-math\src\lib.rs" />
+    <None Include="crates\hpl-math\src\math\clip.rs" />
+    <None Include="crates\hpl-math\src\math\color_conv.rs" />
+    <None Include="crates\hpl-math\src\math\intersect.rs" />
+    <None Include="crates\hpl-math\src\math\matrix_ops.rs" />
+    <None Include="crates\hpl-math\src\math\mod.rs" />
+    <None Include="crates\hpl-math\src\math\plane.rs" />
+    <None Include="crates\hpl-math\src\math\polygon.rs" />
+    <None Include="crates\hpl-math\src\math\quat.rs" />
+    <None Include="crates\hpl-math\src\math\random.rs" />
+    <None Include="crates\hpl-math\src\math\scalar.rs" />
+    <None Include="crates\hpl-math\src\math\spherical.rs" />
+    <None Include="crates\hpl-math\src\math\triangle.rs" />
+    <None Include="crates\hpl-math\src\math\vec2.rs" />
+    <None Include="crates\hpl-math\src\math\vec3.rs" />
+    <None Include="crates\hpl-math\src\matrix.rs" />
+    <None Include="crates\hpl-math\src\mesh_types.rs" />
+    <None Include="crates\hpl-math\src\pid.rs" />
+    <None Include="crates\hpl-math\src\quaternion.rs" />
+    <None Include="crates\hpl-math\src\spring.rs" />
+    <None Include="crates\hpl-math\src\types.rs" />
+    <None Include="crates\hpl-math\src\util.rs" />
+    <None Include="crates\hpl-math\src\vector.rs" />
+    <None Include="crates\hpl2-ffi\src\bridge.rs" />
+    <None Include="crates\hpl2-ffi\src\geometry.rs" />
+    <None Include="crates\hpl2-ffi\src\lib.rs" />
+    <None Include="crates\hpl2-ffi\src\math.rs" />
+    <None Include="crates\hpl2-ffi\src\misc.rs" />
+    <None Include="crates\hpl2-ffi\src\types.rs" />
+    <ClInclude Include="crates\hpl2-ffi\include\hpl2_rs.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

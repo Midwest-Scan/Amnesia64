@@ -21,6 +21,7 @@
 
 #include "math/Math.h"
 #include "graphics/LowLevelGraphics.h"
+#include "system/RustBridge.h"
 
 
 namespace hpl {
@@ -63,10 +64,15 @@ namespace hpl {
 	
 	bool cShadowVolumeBV::CollideBoundingVolume(cBoundingVolume* aBV)
 	{
+#if HPL2_RUST_MATH
+		return hpl_bv_shadow_volume_collide(RsPtr(mvPlanes), mlPlaneCount, ToRs(aBV->GetWorldCenter()), aBV->GetRadius(),
+											ToRs(aBV->GetMin()), ToRs(aBV->GetMax()), ToRs(aBV->GetPosition()));
+#else
 		//Do a simple sphere collide test
 		if(CollideBVSphere(aBV)==false) return false;
 
 		return 	CollideBVAABB(aBV);
+#endif
 	}
 
 	//-----------------------------------------------------------------------
@@ -278,6 +284,26 @@ namespace hpl {
 	cShadowVolumeBV* cBoundingVolume::GetShadowVolume(const cVector3f& avLightPos,
 														float afLightRange,bool abForceUpdate)
 	{
+#if HPL2_RUST_MATH
+		if(cMath::CheckPointInBVIntersection(avLightPos, *this)) return NULL;
+		if(!abForceUpdate && !mbShadowPlanesNeedUpdate) return &mShadowVolume;
+
+		cVector3f vMax = GetMax();
+		cVector3f vMin = GetMin();
+
+		HplVector3f vPoints[HPL_SHADOW_VOLUME_MAX_POINTS];
+		int lPlaneCount = 0, lCapPlanes = 0, lPointCount = 0;
+		hpl_bv_compute_shadow_volume(ToRs(vMin), ToRs(vMax), ToRs(avLightPos), afLightRange,
+									 RsPtr(mShadowVolume.mvPlanes), &lPlaneCount, &lCapPlanes,
+									 vPoints, HPL_SHADOW_VOLUME_MAX_POINTS, &lPointCount);
+
+		mShadowVolume.mlPlaneCount = lPlaneCount;
+		mShadowVolume.mlCapPlanes = lCapPlanes;
+		mShadowVolume.mvPoints.resize(lPointCount);
+		for(int i=0; i<lPointCount; ++i) mShadowVolume.mvPoints[i] = FromRs(vPoints[i]);
+
+		return &mShadowVolume;
+#else
 		if(cMath::CheckPointInBVIntersection(avLightPos, *this)) return NULL;
 		
 		if(!abForceUpdate && !mbShadowPlanesNeedUpdate) return &mShadowVolume;
@@ -378,6 +404,7 @@ namespace hpl {
 		}
 
 		return &mShadowVolume;
+#endif
 	}
 	
 	//-----------------------------------------------------------------------
@@ -430,6 +457,20 @@ namespace hpl {
 
 	void cBoundingVolume::CreateFromPoints(int alStride)
 	{
+#if HPL2_RUST_MATH
+		mvLocalMax = cVector3f(-100000, -100000, -100000);
+		mvLocalMin = cVector3f(100000, 100000, 100000);
+
+		for(tBVTempArrayListIt it= mlstArrays.begin();it != mlstArrays.end(); it++)
+		{
+			hpl_bv_points_min_max(it->mpArray, it->mlSize, alStride, RsPtr(&mvLocalMin), RsPtr(&mvLocalMax));
+		}
+		mlstArrays.clear();
+
+		//Update the used size
+		mbPositionUpdated = true;
+		mbSizeUpdated = true;
+#else
 		mvLocalMax = cVector3f(-100000, -100000, -100000);
 		mvLocalMin = cVector3f(100000, 100000, 100000);
 		
@@ -461,6 +502,7 @@ namespace hpl {
 		//Update the used size
 		mbPositionUpdated = true;
 		mbSizeUpdated = true;
+#endif
 	}
 
 
@@ -474,6 +516,28 @@ namespace hpl {
 		
 	void cBoundingVolume::UpdateSize()
 	{
+#if HPL2_RUST_MATH
+		if(mbSizeUpdated)
+		{
+			HplBvExtents extents = hpl_bv_compute_extents(RsPtr(m_mtxTransform), ToRs(mvLocalMin), ToRs(mvLocalMax));
+			mvMax = FromRs(extents.max);
+			mvMin = FromRs(extents.min);
+			mvSize = FromRs(extents.size);
+			mvPivot = FromRs(extents.pivot);
+			mfRadius = extents.radius;
+
+			mbSizeUpdated = false;
+			mbPositionUpdated = true;
+		}
+
+		if(mbPositionUpdated)
+		{
+			mvWorldMax = m_mtxTransform.GetTranslation() + mvMax;
+			mvWorldMin = m_mtxTransform.GetTranslation() + mvMin;
+			mbPositionUpdated = false;
+			mbShadowPlanesNeedUpdate = true;
+		}
+#else
 		if(mbSizeUpdated)
 		{
 			cMatrixf mtxRot = m_mtxTransform.GetRotation();
@@ -531,6 +595,7 @@ namespace hpl {
 
 			mbShadowPlanesNeedUpdate = true;
 		}
+#endif
 	}
 
 	//-----------------------------------------------------------------------

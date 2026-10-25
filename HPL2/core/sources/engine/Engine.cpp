@@ -18,6 +18,7 @@
  */
 
 #include "engine/Engine.h"
+#include "system/RustBridge.h"
 
 #include "system/System.h"
 #include "sound/Sound.h"
@@ -195,6 +196,9 @@ namespace hpl {
 
 	cEngine::cEngine(iLowLevelEngineSetup *apGameSetup,tFlag alHplSetupFlags, cEngineInitVars *apVars)
 	{
+		//Route Rust log output and panic reports to the engine log
+		RustBridge_Init();
+
 		GameInit(apGameSetup,alHplSetupFlags, apVars);
 
 		//Set up variables

@@ -21,6 +21,7 @@
 
 #include "math/Math.h"
 #include "system/LowLevelSystem.h"
+#include "system/RustBridge.h"
 
 
 namespace hpl {
@@ -71,16 +72,23 @@ namespace hpl {
 	
 	void cQuaternion::Normalize()
 	{
+#if HPL2_RUST_MATH
+		hpl_quaternion_normalize(RsPtr(this));
+#else
 		float fLen = w*w + v.x*v.x + v.y*v.y + v.z*v.z;
 		float fFactor = 1.0f / sqrt(fLen);
 		v = v * fFactor;
 		w = w * fFactor;
+#endif
 	}
 
 	//-----------------------------------------------------------------------
 	
 	void cQuaternion::ToRotationMatrix(cMatrixf &a_mtxDest) const
 	{
+#if HPL2_RUST_MATH
+		hpl_quaternion_to_rotation_matrix(ToRs(*this), RsPtr(a_mtxDest));
+#else
 		cMatrixf mtxA;
 
 		float fTx  = 2.0f*v.x;
@@ -105,6 +113,7 @@ namespace hpl {
 		a_mtxDest.m[2][0] = fTxz-fTwy;
 		a_mtxDest.m[2][1] = fTyz+fTwx;
 		a_mtxDest.m[2][2] = 1.0f-(fTxx+fTyy);
+#endif
 	}
 
 
@@ -112,6 +121,9 @@ namespace hpl {
 
 	void cQuaternion::FromRotationMatrix(const cMatrix<float> &a_mtxRot)
 	{
+#if HPL2_RUST_MATH
+		*this = FromRs(hpl_quaternion_from_rotation_matrix(RsPtr(a_mtxRot)));
+#else
 		float fTrace = a_mtxRot.m[0][0]+a_mtxRot.m[1][1]+a_mtxRot.m[2][2];
 		float fRoot;
 
@@ -145,12 +157,16 @@ namespace hpl {
 			*apkQuat[j] = (a_mtxRot.m[j][i]+a_mtxRot.m[i][j])*fRoot;
 			*apkQuat[k] = (a_mtxRot.m[k][i]+a_mtxRot.m[i][k])*fRoot;
 		}
+#endif
 	}
 	
 	//-----------------------------------------------------------------------
 
 	void cQuaternion::FromAngleAxis(float afAngle, const cVector3f &avAxis)
 	{
+#if HPL2_RUST_MATH
+		*this = FromRs(hpl_quaternion_from_angle_axis(afAngle, ToRs(avAxis)));
+#else
 		// assert:  axis[] is unit length
 		//
 		// The quaternion representing the rotation is
@@ -162,31 +178,43 @@ namespace hpl {
 		v.x = fSin*avAxis.x;
 		v.y = fSin*avAxis.y;
 		v.z = fSin*avAxis.z;
+#endif
 	}
 
 	//-----------------------------------------------------------------------
 
 	cQuaternion cQuaternion::operator+(const cQuaternion &aqB) const
 	{
+#if HPL2_RUST_MATH
+		return FromRs(hpl_quaternion_add(ToRs(*this), ToRs(aqB)));
+#else
 		cQuaternion qOut;
 		qOut.v = v + aqB.v;
 		qOut.w = w + aqB.w;
 
 		return qOut;
+#endif
 	}
 	//-----------------------------------------------------------------------
 	
 	cQuaternion cQuaternion::operator-(const cQuaternion &aqB) const
 	{
+#if HPL2_RUST_MATH
+		return FromRs(hpl_quaternion_sub(ToRs(*this), ToRs(aqB)));
+#else
 		cQuaternion qOut;
 		qOut.v = v - aqB.v;
 		qOut.w = w - aqB.w;
 
 		return qOut;
+#endif
 	}
 	//-----------------------------------------------------------------------
 	cQuaternion cQuaternion::operator*(const cQuaternion &aqB) const
 	{
+#if HPL2_RUST_MATH
+		return FromRs(hpl_quaternion_mul(ToRs(*this), ToRs(aqB)));
+#else
 		cQuaternion qOut;
 		
 		qOut.w = w * aqB.w - v.x * aqB.v.x - v.y * aqB.v.y - v.z * aqB.v.z;
@@ -195,24 +223,33 @@ namespace hpl {
 		qOut.v.z = w * aqB.v.z + v.z * aqB.w + v.x * aqB.v.y - v.y * aqB.v.x;
 		
 		return qOut;
+#endif
 	}
 
 	cQuaternion cQuaternion::operator/(const cQuaternion &aqB) const
 	{
+#if HPL2_RUST_MATH
+		return FromRs(hpl_quaternion_div(ToRs(*this), ToRs(aqB)));
+#else
 		cQuaternion qOut;
 		qOut.v = v / aqB.v;
 		qOut.w = w / aqB.w;
 
 		return qOut;
+#endif
 	}
 	//-----------------------------------------------------------------------
 	cQuaternion cQuaternion::operator*(float afScalar) const
 	{
+#if HPL2_RUST_MATH
+		return FromRs(hpl_quaternion_mul_scalar(ToRs(*this), afScalar));
+#else
 		cQuaternion qOut;
 		qOut.v = v * afScalar;
 		qOut.w = w * afScalar;
 
 		return qOut;
+#endif
 	}
 
 	//-----------------------------------------------------------------------

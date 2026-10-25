@@ -31,6 +31,7 @@ namespace hpl {
 
 	class cCRCTable
 	{
+	friend class cCRC;
 	public:
 		cCRCTable () : mKey (0) {}
 		

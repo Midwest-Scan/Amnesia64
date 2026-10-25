@@ -31,6 +31,13 @@
 #include <time.h>
 #include <map>
 
+#include "system/RustBridge.h"
+
+// With HPL2_RUST_MATH set to 1, cMath is implemented by the Rust port
+// (MathRust.cpp forwards to rust/crates/hpl-math) and this original
+// implementation is compiled out.
+#if !HPL2_RUST_MATH
+
 namespace hpl {
 
 	static char mpTempChar[1024];
@@ -3711,3 +3718,5 @@ namespace hpl {
 	
 
 }
+
+#endif // !HPL2_RUST_MATH

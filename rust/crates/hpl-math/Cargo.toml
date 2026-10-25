@@ -1,0 +1,11 @@
+[package]
+name = "hpl-math"
+version = "0.1.0"
+description = "Rust port of the HPL2 engine math module (vectors, matrices, planes, frustum, bounding volumes, cMath)"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+log.workspace = true

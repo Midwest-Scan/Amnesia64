@@ -1,0 +1,25 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+edition = "2024"
+license = "GPL-3.0-or-later"
+rust-version = "1.85"
+publish = false
+
+[workspace.dependencies]
+hpl-math = { path = "crates/hpl-math" }
+log = "0.4"
+
+# The engine is linked into a C++ executable, so unwinding across the FFI
+# boundary is never wanted. A panic is reported through the log bridge and
+# then aborts.
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+debug = true        # PDBs for the Visual Studio debugger
+codegen-units = 1
+lto = "thin"
