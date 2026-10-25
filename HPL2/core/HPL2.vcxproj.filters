@@ -114,6 +114,9 @@
     <ClInclude Include="include\system\RustBridge.h">
       <Filter>System</Filter>
     </ClInclude>
+    <ClInclude Include="include\system\RustConfig.h">
+      <Filter>System</Filter>
+    </ClInclude>
     <ClInclude Include="include\system\System.h">
       <Filter>System</Filter>
     </ClInclude>
@@ -1782,10 +1785,16 @@
     <ClCompile Include="sources\ai\AINodeContainer.cpp">
       <Filter>AI</Filter>
     </ClCompile>
+    <ClCompile Include="sources\ai\AINodeContainerRust.cpp">
+      <Filter>AI</Filter>
+    </ClCompile>
     <ClCompile Include="sources\ai\AINodeGenerator.cpp">
       <Filter>AI</Filter>
     </ClCompile>
     <ClCompile Include="sources\ai\AStar.cpp">
+      <Filter>AI</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\ai\AStarRust.cpp">
       <Filter>AI</Filter>
     </ClCompile>
     <ClCompile Include="sources\ai\StateMachine.cpp">

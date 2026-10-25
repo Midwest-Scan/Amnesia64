@@ -20,32 +20,16 @@
 //////////////////////////////////////////////////////////////////////////
 // Bridge between the C++ engine and its Rust port (rust/, hpl2_rs.lib).
 //
-// Each ported module has a switch below. With the switch at 1 the C++
-// functions of that module forward to Rust; at 0 the original C++ bodies
-// are compiled instead (they stay in the same files for comparison).
+// Each ported module has a switch in system/RustConfig.h. With the switch
+// at 1 the C++ functions of that module forward to Rust; at 0 the original
+// C++ bodies are compiled instead (they stay in the same files).
 //////////////////////////////////////////////////////////////////////////
 
 #ifndef HPL_RUST_BRIDGE_H
 #define HPL_RUST_BRIDGE_H
 
-#ifndef HPL2_RUST_MATH
-#define HPL2_RUST_MATH 1
-#endif
-
-// cString, cPreprocessParser, cLogicTimer, VideoComp
-#ifndef HPL2_RUST_SYSTEM
-#define HPL2_RUST_SYSTEM 1
-#endif
-
-// cVoxelMap algorithms (allocation and renderer stay in C++)
-#ifndef HPL2_RUST_GENERATE
-#define HPL2_RUST_GENERATE 1
-#endif
-
-// AStar, node/grid/connection helpers and state transitions (ownership stays C++)
-#ifndef HPL2_RUST_AI
-#define HPL2_RUST_AI 1
-#endif
+// The module switches.
+#include "system/RustConfig.h"
 
 #include <cstddef>
 #include <cstring>
@@ -85,12 +69,7 @@ namespace hpl {
 	// Layout checks: the Hpl* mirrors must match the engine classes exactly,
 	// since arrays of engine objects are passed to Rust by pointer.
 
-	// Numeric snapshots only: initialized members copied, never native class storage.
-	static_assert(sizeof(HplAINodeGridDimensions) == 24, "AI grid dimensions layout");
-	static_assert(alignof(HplAINodeGridDimensions) == alignof(float), "AI grid dimensions alignment");
-	static_assert(offsetof(HplAINodeGridDimensions, minimum) == 0, "AI grid minimum offset");
-	static_assert(offsetof(HplAINodeGridDimensions, maximum) == 8, "AI grid maximum offset");
-	static_assert(offsetof(HplAINodeGridDimensions, map_size) == 16, "AI grid map size offset");
+	// Numeric snapshot only (initialized members copied, never class storage).
 	// cLogicTimer numeric state:
 	static_assert(sizeof(HplLogicTimerState) == 32, "logic timer state layout");
 	static_assert(alignof(HplLogicTimerState) == alignof(double), "logic timer state alignment");

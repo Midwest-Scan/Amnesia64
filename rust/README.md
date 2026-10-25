@@ -10,8 +10,11 @@ moving on.
 | `HPL2/core/*/math` | **Ported** (cMath, cQuaternion, cFrustum, cBoundingVolume, cCRC) | `HPL2_RUST_MATH` |
 | `HPL2/core/*/system` | **Partly ported** (cString, cPreprocessParser, cLogicTimer, VideoComp; SHA1 in Rust only) | `HPL2_RUST_SYSTEM` |
 | `HPL2/core/*/generate` | **Algorithms ported** (cVoxelMap sizing, writes, debug traversal; C++ allocation/factory shell retained) | `HPL2_RUST_GENERATE` |
-| `HPL2/core/*/ai` | **Partly ported** (AStar core and path setup/output, node edge metrics, grid build/lookup, iterator stepping, Compile connection filtering/trimming, state transitions/dispatch/scheduling, node generation placement; ownership and physics remain C++) | `HPL2_RUST_AI` |
+| `HPL2/core/*/ai` | **Navigation owned by Rust** (phase 2: cAINodeContainer, cAINode, cAINodeIterator, cAStarHandler are C++ facades over Rust data; physics and .nodes file I/O stay C++). **State machine and node generator partly ported** (phase 1: state transitions/dispatch/scheduling, node placement; objects stay C++) | `HPL2_RUST_AI` |
 | everything else | C++ | – |
+
+Switches live in `HPL2/core/include/system/RustConfig.h`. Phase 2 (Rust owns
+a class's data behind a C++ facade) is described in [PHASE2.md](PHASE2.md).
 
 The Lux project lives under `amnesia/src/game/` in this checkout. Editors
 remain C++; do not port them. Engine/game CMake files are not used for this
@@ -52,17 +55,14 @@ rust/
     hpl-math/           Port of HPL2/core/{include,sources}/math. Pure Rust, no C ABI.
     hpl-system/         Strings, shader preprocessor, SHA1, logic timer, video mode ordering
     hpl-generate/       Voxel allocation arithmetic, flat indexing and live debug traversal
-    hpl-ai/             AStar search/setup/output, node/grid/connection/placement and state transition/dispatch/scheduling decisions
+    hpl-ai/             Navigation graph and A* (nav.rs, Rust-owned) and the algorithms it runs; state machine and node placement logic
     hpl2-ffi/           The C ABI: builds hpl2_rs.lib and generates include/hpl2_rs.h
   tools/math-diff/      Differential test: original C++ vs. Rust, bit for bit
   tools/system-diff/    The same for cString and cPreprocessParser
   tools/system-core-diff/ LogicTimer and VideoComp; native MSVC and Linux runners
   tools/generate-diff/  VoxelMap public API, real graphics-interface mock, allocation/exception traces
-  tools/astar-diff/     AStar public searches, controlled graph/visibility, live search-node traces
-  tools/ai-grid-diff/   Real AINodeContainer builds, lookup/traversal, edge bits and allocation traces
-  tools/ai-compile-diff/ Real Compile/FreePath with controlled rays, live edits, trimming and exceptions
+  tools/ai-nav-diff/    Navigation through the public API: Compile, iterators, GetPath, save/load, live callbacks
   tools/ai-state-diff/   Real StateMachine with derived callbacks, reentry, live IDs and exception traces
-  tools/astar-path-diff/ Real GetPath and navigation grid/visibility, live endpoints and output callbacks
   tools/ai-placement-diff/ Real Generate/OnIntersect, body bounds, controlled rays, live parameters and node lists
   tools/ai-scheduler-diff/ Real state scheduling, live steps/counters, reentry, exceptions and remainder probes
 ```
@@ -70,15 +70,17 @@ rust/
 C++ side:
 
 ```
-HPL2/core/include/system/RustBridge.h    switches, type conversions, layout checks
+HPL2/core/include/system/RustConfig.h    module switches (macros only; included by public headers)
+HPL2/core/include/system/RustBridge.h    type conversions, string helpers, layout checks
 HPL2/core/sources/system/RustBridge.cpp  routes Rust log output/panics to Log/Error
 HPL2/core/sources/math/MathRust.cpp      cMath implemented by calling Rust
 HPL2/core/sources/system/StringRust.cpp  cString implemented by calling Rust
 HPL2/core/sources/system/LogicTimer.cpp  per-function Rust forwards, original bodies retained
 HPL2/core/sources/system/Platform.cpp    VideoComp forwards; variadic wrappers stay C++
 HPL2/core/sources/generate/VoxelMap.cpp per-function forwards; allocation/ownership stay C++
-HPL2/core/sources/ai/AStar.cpp         five forwards; native sets, allocations and iterator lifetimes retained
-HPL2/core/sources/ai/AINodeContainer.cpp edge/grid/Compile forwards; ownership, lists, sorting and physics retained
+HPL2/core/sources/ai/AStarRust.cpp     cAStarHandler facade (phase 2); AStar.cpp keeps the original
+HPL2/core/sources/ai/AINodeContainerRust.cpp cAINode/cAINodeIterator/cAINodeContainer facades (phase 2);
+                                         AINodeContainer.cpp keeps the original, the ray callback and FreePath
 HPL2/core/sources/ai/StateMachine.cpp  transition/dispatch/scheduler forwards; native timer storage, registration and virtual states retained
 HPL2/core/sources/ai/AINodeGenerator.cpp placement/intersection forwards; physics, lists and file caching retained
 ```
@@ -95,7 +97,7 @@ HPL2/core/sources/ai/AINodeGenerator.cpp placement/intersection forwards; physic
    function per C++ function. `build.rs` regenerates `include/hpl2_rs.h`
    with cbindgen on every build.
 3. **C++ forwarding**: the C++ functions call the Rust ones when the
-   module's switch in `RustBridge.h` is 1. The original bodies stay in place
+   module's switch in `RustConfig.h` is 1. The original bodies stay in place
    under `#else`, so a module can be switched back to C++ in one line to
    compare behaviour in game.
 4. **Differential test**: the same test program is built against the
@@ -136,6 +138,19 @@ FFI conventions:
   The drawing callback catches C++ exceptions into `std::exception_ptr` and
   returns false; Rust stops immediately, then the C++ wrapper rethrows after
   Rust returns. C++ exceptions must never unwind through an `extern "C"` frame.
+* **Phase 2 (Rust-owned classes)**: see [PHASE2.md](PHASE2.md). Public headers
+  include only `system/RustConfig.h` and forward-declare opaque Rust types
+  (`HplAINavGraph`, `HplAINode`, `HplAStar`); the original members stay under
+  `#else`. Child objects handed to C++ by pointer (`cAINode*`) remain C++
+  facades allocated where the original allocated them, and serve as opaque
+  handles in Rust, including for the original's pointer-order tie breaks.
+  Data C++ reads in place (positions, `cAINodeEdge` arrays) is `#[repr(C)]`
+  in Rust with layout checks on both sides. Callbacks (`HplAINavCompileHost`,
+  `HplAStarPathHost`) are used only for unported dependencies: physics,
+  `iAStarCallback`, `std::sort` and the output list.
+* The bullets below on `HplAStarSearchHost`, `HplAINodeGridHost`,
+  `HplAINodeCompileHost` and `HplAStarPathHost` describe phase 1 bridges that
+  phase 2 replaced; they are kept as a record of the audited behaviour.
 * `HplAStarSearchHost` carries opaque search-node, graph-node and edge handles.
   C++ owns and dereferences them; Rust holds no reference into engine state
   across callbacks. `HplAStarOpenHost` walks the existing open set in native
@@ -215,7 +230,18 @@ Rust toolchain. `run.sh` is its Linux/WSL companion. Both require pristine
 sources and always compare four variants; the default pristine path is
 `rust/target/system-core-pristine`. For this port the baseline is `5cc7a98`.
 A read-only `git archive` of that revision's `HPL2/core` is sufficient;
-no checkout switch or changes to the owner's branch are needed.
+no checkout switch or changes to the owner's branch are needed. Also archive
+its `rust/crates/hpl2-ffi/include`: the original variant of each harness uses
+the baseline's generated header when present, because later ports remove
+types from the current one (e.g. `git archive 9f35c56 HPL2/core
+rust/crates/hpl2-ffi/include | tar x -C <pristine>`).
+
+The Linux companions (`run.sh`) of all harnesses were first run on
+2026-10-25 and match 4-way, except that the retired `astar-diff` and
+`ai-grid-diff` differed in NaN payload bits only: which NaN an operation on
+two NaNs returns is chosen by the C++ compiler (g++ here, MSVC on Windows),
+and the Rust side reproduces MSVC. The AI harnesses' scripts now refer to
+`impl/tinyXml` with its real case, which Linux requires.
 
 The harness prints all observable timer state, floating-point bits, clock
 read counts and log messages, and uses the actual C++ video-mode constructors.
@@ -366,286 +392,6 @@ There are no gameplay callers of `CreateVoxelMap`/`SetVoxel` in this checkout,
 so ordinary gameplay is only an integration smoke check. The differential
 graphics mock is the direct exercise of the new algorithm.
 
-## AStar fidelity and verification
-
-`hpl-ai::astar` ports the core of `cAStarHandler`: `IterateAlgorithm`,
-the minimum scan in `GetBestNode`, `Cost` and `Heuristic`. Four exports in
-`hpl2-ffi/src/ai.rs` forward these methods under `HPL2_RUST_AI`, defaulting
-to 1 under `#ifndef`. At 0 the original bodies compile unchanged.
-
-This initial phase-1 slice retained `GetPath` in C++; its setup/output decisions
-are ported in the later AStar path slice below. `AddOpenNode` still retains
-allocation, membership checks and insertion; `IsGoalNode` retains
-native set lookup. `GetBestNode` transfers the selected node between the
-native sets. Constructors, destructors, callbacks and graph objects stay
-C++; there are no class-layout or ownership changes, new third-party
-dependencies or phase-2 work.
-
-The original was audited before implementation. Preserved quirks:
-
-* Open nodes are never relaxed and closed nodes never reopened. Even a
-  duplicate attempt constructs/deletes a temporary native search node.
-* The best-node scan keeps C++ pointer order and strict `>` comparisons.
-  Equal costs retain the first node; an initial NaN cannot be displaced,
-  while a later NaN does not replace a finite best. Native open-set erasure
-  still precedes closed-set insertion, including on allocation failure.
-* The iteration limit is read each pass, with any negative value unlimited.
-  The goal check precedes expansion. Edge count is captured for that node,
-  but callback choice, edge destination/distance and parent distance stay
-  live. The actual edge handle survives the callback; it is not refetched.
-* Cost multiplies the entire traveled distance by `1 + abs(height change)`.
-  Subtraction, `fabs(float)`, addition and multiplication retain f32 order.
-  Root costs read no positions and preserve the original distance bits.
-  Heuristic remains the Euclidean f32 distance calculation. Native MSVC NaN
-  operand choices are explicit locally: height wins over distance in Cost,
-  and squared-sum NaNs select y, then x, then z. This avoids Rust debug/release
-  payload differences without changing shared math code or finite arithmetic.
-* Direct-path success retains old search sets and the caller's output list;
-  graph paths append goal-to-start. Defined nested searches and callback
-  exceptions preserve state changes and the accepted prefix of edges.
-
-Exactly two defensive deviations affect original undefined behavior:
-`GetBestNode` on an empty open set and signed iteration-counter overflow
-abort through the Rust panic hook. The normal private call contract excludes
-the former; finite engine graphs do not reach the latter. Invalidated graph,
-edge or parent pointers remain invalid caller input, and are excluded from
-the corpus. No defined gameplay behavior is intentionally changed.
-
-`tools/astar-diff/run.ps1 <repo> [<pristine-repo>]` uses native Windows x64
-MSVC; `run.sh` is its Linux/WSL companion. The baseline is `e91d65c`, archived
-before edits into `rust/target/astar-pristine`. Archive `HPL2/core` from that
-revision to recreate it. Four variants exercise the public C++ `GetPath` API.
-The controlled container fixture retains real engine class layouts, node and
-iterator algorithms, with a single grid and scripted visibility in place of
-physics. Nodes occupy a contiguous array so pointer ties are reproducible.
-The existing memory-manager observer exposes initialized public search-node
-fields for exact cost/distance/parent traces, without private test hooks.
-
-The corpus covers 2,048 seeded graphs with three searches each, cycles,
-self-edges, negative weights, limits, no relaxation, reverse path append,
-direct-path retained state, callback rejection/replacement, live edge and
-distance edits, nested direct/full searches, exceptions and float edge cases.
-Float results are printed as bits and logs share the output stream. Invalid
-pointer lifetimes and signed overflow are excluded with comments in the
-harness. Physics collision and grid construction are outside this slice.
-One-shot allocation failures cover new search-node allocation and transfer
-to the closed set. The original leaks the selected node if closed-set insertion
-throws after open-set erasure; this behavior stays native. The fixture records
-that initialized orphan and explicitly cleans it up after the test.
-
-`tools/astar-diff/mutate.ps1 <repo>` plants twelve independent selection,
-arithmetic, precision, limit, edge-order and callback-state bugs. It restores
-source bytes and rebuilds both Rust profiles in `finally`; build failures and
-crashes do not count as detections. Run it without concurrent builds or Rust
-edits. Logs and output stay under `rust/target/astar-diff/`.
-
-Verification for the AStar slice (Rust 1.97.0, native Windows x64 MSVC):
-
-* Workspace unit tests: **96 passed** (16 AI, 13 generate, 33 math, 27 system,
-  7 FFI; 18 added by this slice).
-* `cargo clippy --workspace --all-targets --locked -- -D warnings`: clean.
-* Differential: **294,345 lines, 4-way identical** against `e91d65c`, covering
-  6,623 public searches and exact initialized search-node fields.
-* Mutation check: **12/12 caught, 0 equivalent mutants**, all actual output
-  mismatches, followed by restored sources/libraries and a clean four-way pass.
-* Full `Amnesia.sln` **Debug x64 and Release x64 passed**, including Lux and
-  all six editor/tool projects, using normal process access for MSVC.
-* Linux/WSL was not run. Explicit NaN operand selection is verified against
-  native MSVC; the Linux companion makes no claim of an untested GCC match.
-
-Reload the changed Rust project in Visual Studio (or restart VS), then build
-Debug and Release x64. In game, load an area with an enemy, let it patrol,
-then draw it around a corner or obstacle so its path requires graph nodes;
-break line of sight and load a save to exercise repeated searches. This is
-the actual `amnesia/src/game/LuxEnemyPathfinder.cpp` caller. In-game testing
-remains for the owner.
-
-## AI node/grid fidelity and verification
-
-`hpl-ai::node_container` ports five bounded helpers in `AINodeContainer.cpp`:
-`cAINode::AddEdge` metrics, `BuildNodeGridMap`, `GetGridPosFromLocal`, `GetGrid`
-indexing and `cAINodeIterator::IncGridPos`. Five exports in `ai_grid.rs` use
-the existing `HPL2_RUST_AI` switch. Original bodies remain unchanged at 0.
-
-Node allocation, names/ID lookup, edge-vector append, grid-vector resize and
-list append stay native. Iterator construction, `HasNext` and `Next` retain
-their native list state. This slice left `Compile` filtering/trimming in C++;
-the following slice ports those decisions. Native sorting, physics ray queries,
-XML I/O and lifecycle remain C++. No class layout, third-party
-dependency or phase-2 ownership change is involved.
-
-The original was audited before implementation. Preserved quirks:
-
-* Rebuilding never clears surviving cell lists. Same-size rebuilds append
-  duplicates; resizing preserves old lower-index lists even after bounds or
-  grid stride change, destroying only removed cells. Node order stays native.
-* Bounds fold x/z coordinates with strict comparisons. A NaN in the first
-  node stays; later NaNs are ignored. Equal signed zeros retain the first sign.
-* Dimension uses f32 node count / nodes per grid, float square root, `+0.5f`,
-  truncation, then `+1`. Storage is `(dimension+1)^2`, while cell extent divides
-  by dimension. Queries clamp inclusively to the border row/column.
-* Bounds and dimensions are written before resize; cell size follows success.
-  Allocation failure leaves that exact partial state. Append failures retain
-  the completed prefix, stop Rust immediately and rethrow in C++.
-* Build insertion divides only when cell extent is strictly positive. Query
-  conversion divides unconditionally, truncates, clamps low, then clamps high.
-  Flat indexing preserves defined cross-axis aliases; it does not add axis
-  checks absent from the original.
-* Iterator stepping advances x first, then wraps and advances y. Exhaustion
-  leaves coordinates advanced. Negative radii/inverted ranges are not
-  normalized, and native `Next` still advances before returning its node.
-* Edge metrics store both Euclidean distance and directly computed squared
-  distance; squaring the rounded root would change bits. Duplicate and self
-  edges remain accepted, with C++ allocation exceptions preserved.
-  The native AddEdge call site selects squared-sum NaNs in y/x/z priority;
-  this is explicit locally, including payload conflicts with infinity-minus-
-  infinity. Shared math code is unchanged and finite arithmetic keeps its order.
-
-Deviations are limited to original undefined operations: empty grid builds,
-signed dimension/allocation/index/increment overflow, and out-of-buffer flat
-indices abort through the Rust panic hook. Invalid float-to-int casts use
-the existing x86 `INT_MIN` helper before the original clamps/indexing; this
-includes zero-extent query division. Defined cases are compared separately
-from these defensive unit tests. Invalidated graph/list pointers remain
-invalid caller input, not a new supported operation.
-
-`tools/ai-grid-diff/run.ps1 <repo> [<pristine-repo>]` runs on native Windows
-x64; `run.sh` is its Linux companion. Baseline `890af92` was archived before
-edits into `rust/target/ai-grid-pristine`; archive `HPL2/core` from that commit
-to recreate it. All graph/grid/node/iterator bodies come from the actual
-production source in each variant. TinyXML is linked to satisfy MSVC's unused
-references, while unused world/string/platform dependencies have abort-only
-stubs. The harness does not replace the algorithm or expose private members.
-
-The corpus exercises 2,664 builds and 42,389 public iterator queries, including
-2,048 seeded node sets, plus 2,166 special float edge cases and 4,096 seeded
-random edges. It covers public node/edge/build/iterator APIs, repeated builds,
-changed positions and growing grids, border and negative-radius queries,
-allocation failures and recovery, special float edge metrics, and thousands
-of seeded cases. It prints float bits, allocation events, node order and logs.
-An allocation callback adds an inside-bounds node during grid resize, checking
-that later insertion reads the live node count. Tiny/large finite grids use
-bounded query-to-cell ratios so the original casts remain defined.
-Empty builds, invalid grid casts/indices and unrepresentable query quotients
-are excluded with comments. Degenerate grid builds are tested without making
-undefined queries into zero-width axes.
-
-`tools/ai-grid-diff/mutate.ps1 <repo>` plants twelve independent metric,
-precision, sizing, border, traversal, live-count and exception-stop bugs. It
-restores source bytes and rebuilds both Rust profiles in `finally`. Only real
-output mismatches count; compile/runtime failures do not. Run it without
-concurrent Rust edits/builds. Logs remain under `rust/target/ai-grid-diff/`.
-
-Verification for this slice (Rust 1.97.0, native Windows x64 MSVC):
-
-* Workspace unit tests: **117 passed** (35 AI, 13 generate, 33 math, 27 system,
-  9 FFI; 21 added by this slice).
-* `cargo clippy --workspace --all-targets --locked -- -D warnings`: clean.
-* Differential: **1,309,674 lines, 4-way identical** against `890af92`.
-* Mutation check: **12/12 caught, 0 equivalent mutants**, all output mismatches,
-  followed by restored source bytes/libraries and a clean four-way pass.
-* Full `Amnesia.sln` **Debug x64 and Release x64 passed**, including Lux and
-  all six editor/tool projects, using normal process access for MSVC.
-* Linux/WSL was not run. NaN operand choices are verified against native MSVC;
-  the Linux companion does not imply an untested GCC result.
-
-Reload the Rust project in Visual Studio (or restart VS), build Debug and
-Release x64, then load an enemy map, watch patrols and draw an enemy around
-corners. Reload a save to repeat grid setup. Both cached `LoadFromFile` and
-uncached `Compile` build grids; AddEdge also runs during connection rebuilding
-and is directly covered by the differential corpus. In-game validation remains
-for the owner.
-
-## AI connection compilation slice
-
-`hpl-ai/src/node_compile.rs` ports `AINodeContainer::Compile`'s per-source
-candidate filtering, edge-count cap and distance trimming. One export in
-`hpl2-ffi/src/ai_compile.rs` uses the existing `HPL2_RUST_AI` switch; the complete
-original Compile body is preserved byte-for-byte under `#else`. The C++ shell
-still builds the grid and walks the native node vector. It constructs each
-candidate iterator with the original `max_distance * 1.5f` radius, then supplies
-live opaque-node callbacks to Rust. No new switch, dependency, object layout,
-ownership model or phase-2 interop is introduced.
-
-The original was audited before implementation. Preserved quirks:
-
-* Self candidates are skipped before any position reads. Distance rejection is
-  strictly `distance > max_distance * 2`, then height acceptance is
-  `abs(source.y - candidate.y) <= max_height`, with the original f32 arithmetic.
-  NaN distance passes rejection; NaN height fails acceptance.
-* Filters read live limits and positions. Visibility retains native FreePath
-  with ray count `-1` and SkipDynamic | SkipVolatile. Successful visibility calls
-  native AddEdge, recomputing metrics after any callback position changes.
-* Existing edges, self edges and duplicates survive. Native unstable std::sort
-  preserves platform tie ordering. It runs before the positive maximum cap;
-  the minimum edge count cannot override that cap. Nonpositive caps are unlimited.
-* Trimming truncates the complete suffix at the first edge strictly beyond the
-  live distance limit whose signed index meets the minimum. Exact-distance ties
-  remain. Negative minimum counts allow truncation at index zero.
-* Count/index narrowing keeps MSVC's signed low 32 bits. Allocation/visibility
-  exceptions stop immediately with the completed prefix intact, are caught in
-  the per-invocation C++ context, and rethrow only after Rust returns.
-
-**No new deviations.** Prior grid deviations remain as documented above.
-Invalidated native iterators and graph pointers remain invalid caller input;
-NaN edge distances that violate native sorting's strict-weak-order requirement
-are excluded from the native differential corpus. Pure Rust host tests cover
-NaN filter decisions and synthetic huge counts without invoking native UB.
-
-`tools/ai-compile-diff/run.ps1 <repo> [<pristine-repo>]` runs on native Windows
-x64; `run.sh` is its Linux companion. Baseline `27301fd` was archived before
-edits to `rust/target/ai-compile-pristine`; archive `HPL2/core` from that commit
-to recreate it. Because earlier AI helpers were already ported at that commit,
-the archived reference also compiles with `HPL2_RUST_AI=0`. This exercises its
-original native helpers and Compile without linking Rust into the reference.
-Current switch-off, Rust release and Rust debug are compared to that output.
-
-The harness uses real production Compile, grid/iterator, AddEdge, FreePath and
-sorting. A normally constructed lightweight cWorld and concrete iPhysicsWorld
-fixture control ray results; unrelated virtual methods abort if reached.
-TinyXML and Color.cpp satisfy native link dependencies. Float bits, edge order,
-ray calls, allocations and logs all enter the comparison. Real physics body
-prefiltering is unchanged native code and is outside this fixture's coverage.
-
-The corpus makes 2,794 Compile calls and 204,255 ray calls, including 36
-controlled exceptions and 2,048 seeded graphs. It includes fixed and adjacent
-thresholds, negative/zero limits, pre-existing and duplicate edges, unstable-sort
-ties, repeated compilation, absent physics, live position/limit/edge changes,
-nested compilation with a caught inner exception, partial failures and recovery.
-Safe nonfinite y/height cases exercise comparison behavior without sorting NaNs.
-Nonempty grids with finite x/z coordinates, nonzero extents and bounded query
-to cell ratios avoid undefined native casts; source comments explain exclusions.
-
-`tools/ai-compile-diff/mutate.ps1 <repo>` plants independent realistic bugs one
-at a time, requires actual output mismatches, restores exact source bytes and
-rebuilds both Rust profiles in `finally`. Run it without concurrent Rust edits
-or builds. Logs stay under `rust/target/ai-compile-diff/`.
-
-Verification for this slice (Rust 1.97.0, native Windows x64 MSVC):
-
-* Workspace unit tests: **132 passed** (46 AI, 13 generate, 33 math, 27 system,
-  13 FFI; 15 added by this slice).
-* `cargo clippy --workspace --all-targets --locked -- -D warnings`: clean.
-* Differential: **565,569 lines, 4-way identical** against `27301fd`.
-* Mutation check: **12/12 caught, 0 equivalent mutants**, all output mismatches,
-  followed by exact source restoration, both library rebuilds and a clean
-  four-way comparison. Mutants cover self candidates, cutoff multipliers and
-  boundaries, signed height, blocked paths, ignored append exceptions, zero
-  caps, minimum off-by-one, skipped sort, stale limits and double arithmetic.
-* Full `Amnesia.sln` **Debug x64 and Release x64 passed**, including Lux and
-  all six editor/tool projects, using normal process access for MSVC.
-* Linux/WSL was not run. The Linux runner is supplied without claiming a pass.
-  Unit tests/Clippy used process-only `CARGO_INCREMENTAL=0` to avoid restricted
-  filesystem hard-link warnings; no build settings or toolchain pin changed.
-
-Reload the Rust project in Visual Studio (or restart VS) after the explicit
-file-list additions. For an in-game check, temporarily rename the relevant
-`<map>_<container>.nodes` cache, load an enemy map and confirm the log says
-`Rebuilding node connections and saving to ...`. Check enemy patrol/pursuit
-around obstacles. Normal cached loads bypass Compile. Preserve the original
-cache so it can be restored after the check. In-game validation remains for
-the owner.
-
 ## AI state transition slice
 
 `hpl-ai/src/state_machine.rs` ports `cStateMachine::ChangeState` and the active/
@@ -740,117 +486,6 @@ as a ladder or carried object, and observe enemy patrol/pursuit as a general
 regression check. Those Lux systems do not call this HPL2 class; the public-API
 differential harness directly validates the new code. Gameplay validation remains
 for the owner.
-
-## AStar path setup and output slice
-
-`hpl-ai/src/astar_path.rs` ports `cAStarHandler::GetPath`: the direct-path decision,
-fallback sequence, start/goal candidate filtering and result-chain traversal.
-`hpl2-ffi/src/ai_path.rs` exports `hpl_astar_get_path` through the existing
-`HPL2_RUST_AI` switch. The complete original GetPath body, including its original
-comments, remains under `#else`. Removing the new branch and `<new>` include
-reconstructs the previous AStar.cpp byte-for-byte.
-
-Graph and search-node ownership, set allocation/order, native reset operations,
-AddOpenNode, visibility, native iterator lifetime and list insertion remain C++.
-The previous Rust search core still performs the search through its existing
-bridge. No new dependency, object layout, C++ language setting or phase-2
-ownership change is introduced. The lazy stack holders use C++11 alignment and
-placement new; there is no extra heap allocation on either path.
-
-The original was audited before implementation. Preserved quirks:
-
-* Height limit is captured as `maxHeight * 1.5f` at entry. Direct visibility is
-  called only when the height comparison passes. Direct success clears only
-  the goal pointer and returns true; old search sets, saved goal position and
-  caller output survive. The initially uninitialized goal pointer is not read.
-* Fallback deletes closed nodes before open nodes, clears the goal set, resets
-  the goal pointer, copies the live goal reference, then captures
-  `maxDistance * 2`. Native exception side effects remain in that order.
-* Original start/goal references stay live across visibility and allocation
-  callbacks. The start iterator is created after reset; the goal iterator only
-  after all start candidates. Both use the captured radius, but each captures
-  its own origin when constructed. Subsequent filters reread live endpoints.
-* Candidate distance uses strict `<`; height uses `<=`. Arithmetic stays f32.
-  Start insertion receives the distance computed before visibility even when
-  the callback changes positions. Height/radius limits are not refreshed during
-  either candidate pass. Both passes and search iteration still run when a
-  candidate set is empty.
-* Every visibility query retains native FreePath with ray count -1 and
-  SkipDynamic. AddOpenNode still performs native allocation/membership checks
-  and computes its cost/heuristic from the state then visible to C++.
-* A found goal is captured once. Nullable output skips traversal. Non-null
-  output appends goal-to-start without clearing its existing contents. Native
-  list insertion preserves the graph-field reference through allocation, then
-  the parent link is reread. Nested direct success during append may clear the
-  handler's live goal pointer; the outer call still returns true.
-* Failures from visibility, reset, insertion, search or output stop immediately
-  and rethrow after Rust returns, retaining partial sets/output and callback
-  changes. There is no cleanup or rollback absent from the original.
-
-**No new deviations.** Prior AStar/grid deviations remain documented above.
-Invalidated graph/search pointers, invalid grid queries, uninitialized search
-fields and cyclic parent chains remain outside the defined caller contract.
-No cycle guard or storage ownership redesign is added.
-
-`tools/astar-path-diff/run.ps1 <repo> [<pristine-repo>]` runs on native Windows
-x64; `run.sh` is its Linux companion. Baseline `e465c7d` was archived before edits
-to `rust/target/astar-path-pristine`; archive `HPL2/core` from that commit to
-recreate it. Original and current switch-off use `HPL2_RUST_AI=0`, so the archived
-reference exercises native AStar/grid bodies without linking Rust. Release and
-debug Rust outputs are compared to the same reference.
-
-The harness links production AStar.cpp and AINodeContainer.cpp, including real
-grid/iterator, FreePath and search behavior. A normally constructed world and
-concrete physics fixture supply controlled rays; unrelated dependencies use the
-same bounded stubs as the connection harness. Real physics body filtering remains
-native and is outside the ray fixture's coverage. Memory-manager observations
-expose public search-node state without private production hooks; comparisons
-include float bits, search/output order, callbacks, allocations and logs.
-
-The corpus runs 4,399 GetPath queries across 2,048 seeded graphs plus fixed cases,
-104,173 production rays, 10 controlled exceptions and 6 nested searches. It covers
-repeated searches, direct success with retained sets/output, no-start/no-goal
-cases, nullable output, strict/adjacent
-thresholds, live endpoint aliases, captured limits, pre-visibility distances,
-reset/insertion/output exceptions and nested searches. Output allocation hooks
-edit a graph-field reference or parent link while preserving stored set ordering
-and object lifetimes. A native allocation arena makes graph pointer ties
-reproducible; leftover native allocation-failure orphans are reclaimed only after
-the handler has finished and graph nodes remain alive. The allocation observer
-reads its tracking vector only during armed faults inside the test's lifetime.
-
-`tools/astar-path-diff/mutate.ps1 <repo>` plants independent realistic bugs one
-at a time, requires actual output mismatches, restores exact source bytes and
-rebuilds both Rust profiles in `finally`. Run it without concurrent Rust edits
-or builds. Logs stay under `rust/target/astar-path-diff/`.
-
-Verification for this slice (Rust 1.97.0, native Windows x64 MSVC):
-
-* Workspace unit tests: **171 passed** (74 AI, 13 generate, 33 math, 27 system,
-  24 FFI; 19 added by this slice).
-* `cargo clippy --workspace --all-targets --locked -- -D warnings`: clean.
-* Path differential: **276,006 lines, 4-way identical** against `e465c7d`.
-* Earlier AStar search-core regression: **294,345 lines, 4-way identical**.
-* Mutation check: **12/12 caught, 0 equivalent mutants**, all actual output
-  mismatches. An initial double-precision distance mutant exposed a coverage
-  gap; an adjacent-float boundary case closed it, then all twelve mutations
-  were rerun. Exact source bytes were restored, both Rust libraries rebuilt,
-  and the clean four-way comparison passed again.
-* Full `Amnesia.sln` **Debug x64 and Release x64 passed**, including Lux and
-  all six editor/tool projects, using normal process access for MSVC.
-* Linux/WSL was not run. The Linux runner is supplied without claiming a pass.
-  Unit tests/Clippy used process-only `CARGO_INCREMENTAL=0`; no build settings
-  or toolchain pin changed. Source and project line endings were preserved;
-  the generated header was restored to CRLF after the final builds.
-
-Reload the Rust project in Visual Studio (or restart VS), then build Debug and
-Release x64. Load an enemy map and draw an enemy around corners or obstacles,
-then return to clear line of sight. Repeat after loading a save to exercise
-successive graph and direct paths. `cLuxEnemyPathfinder::MoveTo` calls this API;
-cached navigation data is sufficient, without rebuilding node connections.
-Gameplay validation remains for the owner.
-
-AINodeGenerator's placement logic is covered by the following slice.
 
 ## AI node generation placement slice
 
@@ -1045,8 +680,490 @@ check. Lux's state systems are separate; no engine/Lux callers or subclasses of
 this HPL2 state machine were found, so the public-API differential harness is
 the direct validation. Gameplay validation remains for the owner.
 
-Recommended next slice: audit AINodeContainer's FreePath ray setup and filtering,
+Superseded: AINodeContainer and AStar moved to Rust in phase 2 (see below);
+the original recommendation was to audit AINodeContainer's FreePath ray setup and filtering,
 keeping physics ownership and virtual ray execution native.
+
+## AI navigation: phase 2 (Rust-owned)
+
+`cAINodeContainer`, `cAINode`, `cAINodeIterator` and `cAStarHandler` keep their
+public API, but with `HPL2_RUST_AI` at 1 their data lives in Rust
+(`hpl-ai/src/nav.rs`, C ABI in `hpl2-ffi/src/ai_nav.rs`). See
+[PHASE2.md](PHASE2.md) for the pattern. The C++ classes are facades
+(`AINodeContainerRust.cpp`, `AStarRust.cpp`); the originals are untouched in
+`AINodeContainer.cpp`/`AStar.cpp` and the headers' `#else` branches.
+
+| Rust | C++ facade |
+|---|---|
+| Nodes (ID, position, user data, edges), name/ID lookups, grid map, properties, `Compile`, `AddEdge`, iterator cursor, A* open/closed/goal sets, `GetPath` | `cAINode::msName`, container names/world/collide size/node-at-center/ray callback, `FreePath` (physics), `SaveToFile`/`LoadFromFile` (TinyXML), `iAStarCallback*` |
+
+The Rust code runs the algorithms ported and audited in phase 1 (`astar.rs`,
+`astar_path.rs`, `node_container.rs`, `node_compile.rs`): their host traits are
+now implemented on Rust data. Behaviour kept from the original:
+
+* A* ties break by `cAINode*` address, as the original `std::set` did. The
+  facades are allocated by `AddNode` like the original nodes, so the rule and
+  its inputs are the same. (On Windows the heap randomizes these addresses, so
+  the original tie order was never stable between runs either.)
+* Open nodes are never improved, closed nodes never reopened; output is
+  appended goal-to-start without clearing the list; a direct free path returns
+  early with the list untouched.
+* `Compile` sorts edges with the platform's `std::sort` (called back into
+  C++ on the `#[repr(C)]` edge array) so tie order matches; rebuilding the
+  grid keeps old cell lists (nodes appear twice), as `std::vector::resize` did.
+* Callbacks may use the graph as the original allows (move nodes, change
+  properties, add nodes/edges, rebuild the grid, compile another container,
+  run another search that ends at its direct free-path check). Rust holds no
+  reference across a callback and reads every value where the original does.
+
+Deviations (original undefined behaviour only):
+
+* `GetNode` out of range and `cAINodeIterator::Next` past the end return NULL;
+  `GetEdge` out of range returns NULL.
+* An empty container's `BuildNodeGridMap` (also via `Compile`/`LoadFromFile`)
+  leaves the grid empty instead of reading `mvNodes[0]`; iterating an unbuilt
+  grid yields nothing.
+* `LoadFromFile`: a node ID not in the container is skipped (the original
+  dereferences NULL). An edge naming a missing node keeps its NULL target for
+  `GetEdge`, and the search skips it (the original would dereference it).
+* A nested `GetPath` on the same handler that goes on to reset the search sets
+  while the outer search is using them aborts; deleting a container or handler
+  during its own operation aborts. (The original frees memory still in use.)
+* Where the original's iterators or edge pointers are invalidated by a
+  reallocation inside a callback (e.g. `AddNode` during `Compile`), Rust's
+  indices stay valid.
+
+Accepted simplification: `GetPath` copies its start and goal at entry (the
+original reads the caller's vectors by reference); only a callback that
+changes the caller's endpoint variables mid-search could tell the difference,
+and no engine or Lux code does.
+
+**Verification** (Linux, g++ and Rust 1.97.0; the owner builds on Windows):
+
+* `cargo test --workspace --locked`: **233 passed** (133 AI incl. 14 for
+  `nav.rs`, 13 generate, 33 math, 27 system, 27 FFI). Clippy clean with
+  `-D warnings`.
+* `tools/ai-nav-diff/run.sh <repo> <pristine>`: **683,543 lines, 4-way
+  identical** (original from `e91d65c`, switch off, Rust release, Rust debug).
+  The corpus: 1,500 random containers (lattices with many equal distances,
+  random layouts, duplicate names/IDs/positions, walls, no physics world),
+  1,000 walled lattices where paths need the graph (905 found paths of 3–19
+  nodes), and 600 callback scenarios (all actions above, exceptions from
+  physics and from `CanAddNode`, `SetMaxIterations`/`SetCallback(NULL)` mid
+  search, nested direct searches); plus iterator copies, lookups,
+  save/load round trips with renamed nodes and missing files. The harness
+  uses a monotonic allocator so node addresses follow insertion order in
+  every variant (see `stubs.cpp`). Linux only (it uses `mmap`).
+* Mutation check: **12/12 caught** (address order, relaxing open nodes,
+  grid rebuild clearing, iterator stepping, compile radius, duplicate lookups,
+  stale goals, iterator radius, squared distance, iteration default, start
+  costs).
+* Regression: math, system, system-core, generate, ai-state, ai-placement and
+  ai-scheduler harnesses rerun 4-way identical on Linux.
+* Not verified here: the MSVC build and the game. Build Debug and Release x64
+  in Visual Studio (reload the projects first) and check enemies in game.
+
+The phase 1 harnesses `astar-diff`, `astar-path-diff`, `ai-grid-diff` and
+`ai-compile-diff` were removed: they observed private allocations
+(`cAStarNode` via `operator new`, edge vector growth) that phase 2 replaces.
+
+## History: phase 1 AI navigation slices (superseded)
+
+These sections document the phase 1 bridges for AStar and AINodeContainer,
+replaced by phase 2 (above). Their C++ hosts, FFI modules (`ai.rs`,
+`ai_grid.rs`, `ai_compile.rs`, `ai_path.rs`) and harnesses no longer exist.
+The audits remain accurate: phase 2 runs the same Rust algorithm modules.
+
+### AStar fidelity and verification
+
+`hpl-ai::astar` ports the core of `cAStarHandler`: `IterateAlgorithm`,
+the minimum scan in `GetBestNode`, `Cost` and `Heuristic`. Four exports in
+`hpl2-ffi/src/ai.rs` forward these methods under `HPL2_RUST_AI`, defaulting
+to 1 under `#ifndef`. At 0 the original bodies compile unchanged.
+
+This initial phase-1 slice retained `GetPath` in C++; its setup/output decisions
+are ported in the later AStar path slice below. `AddOpenNode` still retains
+allocation, membership checks and insertion; `IsGoalNode` retains
+native set lookup. `GetBestNode` transfers the selected node between the
+native sets. Constructors, destructors, callbacks and graph objects stay
+C++; there are no class-layout or ownership changes, new third-party
+dependencies or phase-2 work.
+
+The original was audited before implementation. Preserved quirks:
+
+* Open nodes are never relaxed and closed nodes never reopened. Even a
+  duplicate attempt constructs/deletes a temporary native search node.
+* The best-node scan keeps C++ pointer order and strict `>` comparisons.
+  Equal costs retain the first node; an initial NaN cannot be displaced,
+  while a later NaN does not replace a finite best. Native open-set erasure
+  still precedes closed-set insertion, including on allocation failure.
+* The iteration limit is read each pass, with any negative value unlimited.
+  The goal check precedes expansion. Edge count is captured for that node,
+  but callback choice, edge destination/distance and parent distance stay
+  live. The actual edge handle survives the callback; it is not refetched.
+* Cost multiplies the entire traveled distance by `1 + abs(height change)`.
+  Subtraction, `fabs(float)`, addition and multiplication retain f32 order.
+  Root costs read no positions and preserve the original distance bits.
+  Heuristic remains the Euclidean f32 distance calculation. Native MSVC NaN
+  operand choices are explicit locally: height wins over distance in Cost,
+  and squared-sum NaNs select y, then x, then z. This avoids Rust debug/release
+  payload differences without changing shared math code or finite arithmetic.
+* Direct-path success retains old search sets and the caller's output list;
+  graph paths append goal-to-start. Defined nested searches and callback
+  exceptions preserve state changes and the accepted prefix of edges.
+
+Exactly two defensive deviations affect original undefined behavior:
+`GetBestNode` on an empty open set and signed iteration-counter overflow
+abort through the Rust panic hook. The normal private call contract excludes
+the former; finite engine graphs do not reach the latter. Invalidated graph,
+edge or parent pointers remain invalid caller input, and are excluded from
+the corpus. No defined gameplay behavior is intentionally changed.
+
+`tools/astar-diff/run.ps1 <repo> [<pristine-repo>]` uses native Windows x64
+MSVC; `run.sh` is its Linux/WSL companion. The baseline is `e91d65c`, archived
+before edits into `rust/target/astar-pristine`. Archive `HPL2/core` from that
+revision to recreate it. Four variants exercise the public C++ `GetPath` API.
+The controlled container fixture retains real engine class layouts, node and
+iterator algorithms, with a single grid and scripted visibility in place of
+physics. Nodes occupy a contiguous array so pointer ties are reproducible.
+The existing memory-manager observer exposes initialized public search-node
+fields for exact cost/distance/parent traces, without private test hooks.
+
+The corpus covers 2,048 seeded graphs with three searches each, cycles,
+self-edges, negative weights, limits, no relaxation, reverse path append,
+direct-path retained state, callback rejection/replacement, live edge and
+distance edits, nested direct/full searches, exceptions and float edge cases.
+Float results are printed as bits and logs share the output stream. Invalid
+pointer lifetimes and signed overflow are excluded with comments in the
+harness. Physics collision and grid construction are outside this slice.
+One-shot allocation failures cover new search-node allocation and transfer
+to the closed set. The original leaks the selected node if closed-set insertion
+throws after open-set erasure; this behavior stays native. The fixture records
+that initialized orphan and explicitly cleans it up after the test.
+
+`tools/astar-diff/mutate.ps1 <repo>` plants twelve independent selection,
+arithmetic, precision, limit, edge-order and callback-state bugs. It restores
+source bytes and rebuilds both Rust profiles in `finally`; build failures and
+crashes do not count as detections. Run it without concurrent builds or Rust
+edits. Logs and output stay under `rust/target/astar-diff/`.
+
+Verification for the AStar slice (Rust 1.97.0, native Windows x64 MSVC):
+
+* Workspace unit tests: **96 passed** (16 AI, 13 generate, 33 math, 27 system,
+  7 FFI; 18 added by this slice).
+* `cargo clippy --workspace --all-targets --locked -- -D warnings`: clean.
+* Differential: **294,345 lines, 4-way identical** against `e91d65c`, covering
+  6,623 public searches and exact initialized search-node fields.
+* Mutation check: **12/12 caught, 0 equivalent mutants**, all actual output
+  mismatches, followed by restored sources/libraries and a clean four-way pass.
+* Full `Amnesia.sln` **Debug x64 and Release x64 passed**, including Lux and
+  all six editor/tool projects, using normal process access for MSVC.
+* Linux/WSL was not run. Explicit NaN operand selection is verified against
+  native MSVC; the Linux companion makes no claim of an untested GCC match.
+
+Reload the changed Rust project in Visual Studio (or restart VS), then build
+Debug and Release x64. In game, load an area with an enemy, let it patrol,
+then draw it around a corner or obstacle so its path requires graph nodes;
+break line of sight and load a save to exercise repeated searches. This is
+the actual `amnesia/src/game/LuxEnemyPathfinder.cpp` caller. In-game testing
+remains for the owner.
+
+### AI node/grid fidelity and verification
+
+`hpl-ai::node_container` ports five bounded helpers in `AINodeContainer.cpp`:
+`cAINode::AddEdge` metrics, `BuildNodeGridMap`, `GetGridPosFromLocal`, `GetGrid`
+indexing and `cAINodeIterator::IncGridPos`. Five exports in `ai_grid.rs` use
+the existing `HPL2_RUST_AI` switch. Original bodies remain unchanged at 0.
+
+Node allocation, names/ID lookup, edge-vector append, grid-vector resize and
+list append stay native. Iterator construction, `HasNext` and `Next` retain
+their native list state. This slice left `Compile` filtering/trimming in C++;
+the following slice ports those decisions. Native sorting, physics ray queries,
+XML I/O and lifecycle remain C++. No class layout, third-party
+dependency or phase-2 ownership change is involved.
+
+The original was audited before implementation. Preserved quirks:
+
+* Rebuilding never clears surviving cell lists. Same-size rebuilds append
+  duplicates; resizing preserves old lower-index lists even after bounds or
+  grid stride change, destroying only removed cells. Node order stays native.
+* Bounds fold x/z coordinates with strict comparisons. A NaN in the first
+  node stays; later NaNs are ignored. Equal signed zeros retain the first sign.
+* Dimension uses f32 node count / nodes per grid, float square root, `+0.5f`,
+  truncation, then `+1`. Storage is `(dimension+1)^2`, while cell extent divides
+  by dimension. Queries clamp inclusively to the border row/column.
+* Bounds and dimensions are written before resize; cell size follows success.
+  Allocation failure leaves that exact partial state. Append failures retain
+  the completed prefix, stop Rust immediately and rethrow in C++.
+* Build insertion divides only when cell extent is strictly positive. Query
+  conversion divides unconditionally, truncates, clamps low, then clamps high.
+  Flat indexing preserves defined cross-axis aliases; it does not add axis
+  checks absent from the original.
+* Iterator stepping advances x first, then wraps and advances y. Exhaustion
+  leaves coordinates advanced. Negative radii/inverted ranges are not
+  normalized, and native `Next` still advances before returning its node.
+* Edge metrics store both Euclidean distance and directly computed squared
+  distance; squaring the rounded root would change bits. Duplicate and self
+  edges remain accepted, with C++ allocation exceptions preserved.
+  The native AddEdge call site selects squared-sum NaNs in y/x/z priority;
+  this is explicit locally, including payload conflicts with infinity-minus-
+  infinity. Shared math code is unchanged and finite arithmetic keeps its order.
+
+Deviations are limited to original undefined operations: empty grid builds,
+signed dimension/allocation/index/increment overflow, and out-of-buffer flat
+indices abort through the Rust panic hook. Invalid float-to-int casts use
+the existing x86 `INT_MIN` helper before the original clamps/indexing; this
+includes zero-extent query division. Defined cases are compared separately
+from these defensive unit tests. Invalidated graph/list pointers remain
+invalid caller input, not a new supported operation.
+
+`tools/ai-grid-diff/run.ps1 <repo> [<pristine-repo>]` runs on native Windows
+x64; `run.sh` is its Linux companion. Baseline `890af92` was archived before
+edits into `rust/target/ai-grid-pristine`; archive `HPL2/core` from that commit
+to recreate it. All graph/grid/node/iterator bodies come from the actual
+production source in each variant. TinyXML is linked to satisfy MSVC's unused
+references, while unused world/string/platform dependencies have abort-only
+stubs. The harness does not replace the algorithm or expose private members.
+
+The corpus exercises 2,664 builds and 42,389 public iterator queries, including
+2,048 seeded node sets, plus 2,166 special float edge cases and 4,096 seeded
+random edges. It covers public node/edge/build/iterator APIs, repeated builds,
+changed positions and growing grids, border and negative-radius queries,
+allocation failures and recovery, special float edge metrics, and thousands
+of seeded cases. It prints float bits, allocation events, node order and logs.
+An allocation callback adds an inside-bounds node during grid resize, checking
+that later insertion reads the live node count. Tiny/large finite grids use
+bounded query-to-cell ratios so the original casts remain defined.
+Empty builds, invalid grid casts/indices and unrepresentable query quotients
+are excluded with comments. Degenerate grid builds are tested without making
+undefined queries into zero-width axes.
+
+`tools/ai-grid-diff/mutate.ps1 <repo>` plants twelve independent metric,
+precision, sizing, border, traversal, live-count and exception-stop bugs. It
+restores source bytes and rebuilds both Rust profiles in `finally`. Only real
+output mismatches count; compile/runtime failures do not. Run it without
+concurrent Rust edits/builds. Logs remain under `rust/target/ai-grid-diff/`.
+
+Verification for this slice (Rust 1.97.0, native Windows x64 MSVC):
+
+* Workspace unit tests: **117 passed** (35 AI, 13 generate, 33 math, 27 system,
+  9 FFI; 21 added by this slice).
+* `cargo clippy --workspace --all-targets --locked -- -D warnings`: clean.
+* Differential: **1,309,674 lines, 4-way identical** against `890af92`.
+* Mutation check: **12/12 caught, 0 equivalent mutants**, all output mismatches,
+  followed by restored source bytes/libraries and a clean four-way pass.
+* Full `Amnesia.sln` **Debug x64 and Release x64 passed**, including Lux and
+  all six editor/tool projects, using normal process access for MSVC.
+* Linux/WSL was not run. NaN operand choices are verified against native MSVC;
+  the Linux companion does not imply an untested GCC result.
+
+Reload the Rust project in Visual Studio (or restart VS), build Debug and
+Release x64, then load an enemy map, watch patrols and draw an enemy around
+corners. Reload a save to repeat grid setup. Both cached `LoadFromFile` and
+uncached `Compile` build grids; AddEdge also runs during connection rebuilding
+and is directly covered by the differential corpus. In-game validation remains
+for the owner.
+
+### AI connection compilation slice
+
+`hpl-ai/src/node_compile.rs` ports `AINodeContainer::Compile`'s per-source
+candidate filtering, edge-count cap and distance trimming. One export in
+`hpl2-ffi/src/ai_compile.rs` uses the existing `HPL2_RUST_AI` switch; the complete
+original Compile body is preserved byte-for-byte under `#else`. The C++ shell
+still builds the grid and walks the native node vector. It constructs each
+candidate iterator with the original `max_distance * 1.5f` radius, then supplies
+live opaque-node callbacks to Rust. No new switch, dependency, object layout,
+ownership model or phase-2 interop is introduced.
+
+The original was audited before implementation. Preserved quirks:
+
+* Self candidates are skipped before any position reads. Distance rejection is
+  strictly `distance > max_distance * 2`, then height acceptance is
+  `abs(source.y - candidate.y) <= max_height`, with the original f32 arithmetic.
+  NaN distance passes rejection; NaN height fails acceptance.
+* Filters read live limits and positions. Visibility retains native FreePath
+  with ray count `-1` and SkipDynamic | SkipVolatile. Successful visibility calls
+  native AddEdge, recomputing metrics after any callback position changes.
+* Existing edges, self edges and duplicates survive. Native unstable std::sort
+  preserves platform tie ordering. It runs before the positive maximum cap;
+  the minimum edge count cannot override that cap. Nonpositive caps are unlimited.
+* Trimming truncates the complete suffix at the first edge strictly beyond the
+  live distance limit whose signed index meets the minimum. Exact-distance ties
+  remain. Negative minimum counts allow truncation at index zero.
+* Count/index narrowing keeps MSVC's signed low 32 bits. Allocation/visibility
+  exceptions stop immediately with the completed prefix intact, are caught in
+  the per-invocation C++ context, and rethrow only after Rust returns.
+
+**No new deviations.** Prior grid deviations remain as documented above.
+Invalidated native iterators and graph pointers remain invalid caller input;
+NaN edge distances that violate native sorting's strict-weak-order requirement
+are excluded from the native differential corpus. Pure Rust host tests cover
+NaN filter decisions and synthetic huge counts without invoking native UB.
+
+`tools/ai-compile-diff/run.ps1 <repo> [<pristine-repo>]` runs on native Windows
+x64; `run.sh` is its Linux companion. Baseline `27301fd` was archived before
+edits to `rust/target/ai-compile-pristine`; archive `HPL2/core` from that commit
+to recreate it. Because earlier AI helpers were already ported at that commit,
+the archived reference also compiles with `HPL2_RUST_AI=0`. This exercises its
+original native helpers and Compile without linking Rust into the reference.
+Current switch-off, Rust release and Rust debug are compared to that output.
+
+The harness uses real production Compile, grid/iterator, AddEdge, FreePath and
+sorting. A normally constructed lightweight cWorld and concrete iPhysicsWorld
+fixture control ray results; unrelated virtual methods abort if reached.
+TinyXML and Color.cpp satisfy native link dependencies. Float bits, edge order,
+ray calls, allocations and logs all enter the comparison. Real physics body
+prefiltering is unchanged native code and is outside this fixture's coverage.
+
+The corpus makes 2,794 Compile calls and 204,255 ray calls, including 36
+controlled exceptions and 2,048 seeded graphs. It includes fixed and adjacent
+thresholds, negative/zero limits, pre-existing and duplicate edges, unstable-sort
+ties, repeated compilation, absent physics, live position/limit/edge changes,
+nested compilation with a caught inner exception, partial failures and recovery.
+Safe nonfinite y/height cases exercise comparison behavior without sorting NaNs.
+Nonempty grids with finite x/z coordinates, nonzero extents and bounded query
+to cell ratios avoid undefined native casts; source comments explain exclusions.
+
+`tools/ai-compile-diff/mutate.ps1 <repo>` plants independent realistic bugs one
+at a time, requires actual output mismatches, restores exact source bytes and
+rebuilds both Rust profiles in `finally`. Run it without concurrent Rust edits
+or builds. Logs stay under `rust/target/ai-compile-diff/`.
+
+Verification for this slice (Rust 1.97.0, native Windows x64 MSVC):
+
+* Workspace unit tests: **132 passed** (46 AI, 13 generate, 33 math, 27 system,
+  13 FFI; 15 added by this slice).
+* `cargo clippy --workspace --all-targets --locked -- -D warnings`: clean.
+* Differential: **565,569 lines, 4-way identical** against `27301fd`.
+* Mutation check: **12/12 caught, 0 equivalent mutants**, all output mismatches,
+  followed by exact source restoration, both library rebuilds and a clean
+  four-way comparison. Mutants cover self candidates, cutoff multipliers and
+  boundaries, signed height, blocked paths, ignored append exceptions, zero
+  caps, minimum off-by-one, skipped sort, stale limits and double arithmetic.
+* Full `Amnesia.sln` **Debug x64 and Release x64 passed**, including Lux and
+  all six editor/tool projects, using normal process access for MSVC.
+* Linux/WSL was not run. The Linux runner is supplied without claiming a pass.
+  Unit tests/Clippy used process-only `CARGO_INCREMENTAL=0` to avoid restricted
+  filesystem hard-link warnings; no build settings or toolchain pin changed.
+
+Reload the Rust project in Visual Studio (or restart VS) after the explicit
+file-list additions. For an in-game check, temporarily rename the relevant
+`<map>_<container>.nodes` cache, load an enemy map and confirm the log says
+`Rebuilding node connections and saving to ...`. Check enemy patrol/pursuit
+around obstacles. Normal cached loads bypass Compile. Preserve the original
+cache so it can be restored after the check. In-game validation remains for
+the owner.
+
+### AStar path setup and output slice
+
+`hpl-ai/src/astar_path.rs` ports `cAStarHandler::GetPath`: the direct-path decision,
+fallback sequence, start/goal candidate filtering and result-chain traversal.
+`hpl2-ffi/src/ai_path.rs` exports `hpl_astar_get_path` through the existing
+`HPL2_RUST_AI` switch. The complete original GetPath body, including its original
+comments, remains under `#else`. Removing the new branch and `<new>` include
+reconstructs the previous AStar.cpp byte-for-byte.
+
+Graph and search-node ownership, set allocation/order, native reset operations,
+AddOpenNode, visibility, native iterator lifetime and list insertion remain C++.
+The previous Rust search core still performs the search through its existing
+bridge. No new dependency, object layout, C++ language setting or phase-2
+ownership change is introduced. The lazy stack holders use C++11 alignment and
+placement new; there is no extra heap allocation on either path.
+
+The original was audited before implementation. Preserved quirks:
+
+* Height limit is captured as `maxHeight * 1.5f` at entry. Direct visibility is
+  called only when the height comparison passes. Direct success clears only
+  the goal pointer and returns true; old search sets, saved goal position and
+  caller output survive. The initially uninitialized goal pointer is not read.
+* Fallback deletes closed nodes before open nodes, clears the goal set, resets
+  the goal pointer, copies the live goal reference, then captures
+  `maxDistance * 2`. Native exception side effects remain in that order.
+* Original start/goal references stay live across visibility and allocation
+  callbacks. The start iterator is created after reset; the goal iterator only
+  after all start candidates. Both use the captured radius, but each captures
+  its own origin when constructed. Subsequent filters reread live endpoints.
+* Candidate distance uses strict `<`; height uses `<=`. Arithmetic stays f32.
+  Start insertion receives the distance computed before visibility even when
+  the callback changes positions. Height/radius limits are not refreshed during
+  either candidate pass. Both passes and search iteration still run when a
+  candidate set is empty.
+* Every visibility query retains native FreePath with ray count -1 and
+  SkipDynamic. AddOpenNode still performs native allocation/membership checks
+  and computes its cost/heuristic from the state then visible to C++.
+* A found goal is captured once. Nullable output skips traversal. Non-null
+  output appends goal-to-start without clearing its existing contents. Native
+  list insertion preserves the graph-field reference through allocation, then
+  the parent link is reread. Nested direct success during append may clear the
+  handler's live goal pointer; the outer call still returns true.
+* Failures from visibility, reset, insertion, search or output stop immediately
+  and rethrow after Rust returns, retaining partial sets/output and callback
+  changes. There is no cleanup or rollback absent from the original.
+
+**No new deviations.** Prior AStar/grid deviations remain documented above.
+Invalidated graph/search pointers, invalid grid queries, uninitialized search
+fields and cyclic parent chains remain outside the defined caller contract.
+No cycle guard or storage ownership redesign is added.
+
+`tools/astar-path-diff/run.ps1 <repo> [<pristine-repo>]` runs on native Windows
+x64; `run.sh` is its Linux companion. Baseline `e465c7d` was archived before edits
+to `rust/target/astar-path-pristine`; archive `HPL2/core` from that commit to
+recreate it. Original and current switch-off use `HPL2_RUST_AI=0`, so the archived
+reference exercises native AStar/grid bodies without linking Rust. Release and
+debug Rust outputs are compared to the same reference.
+
+The harness links production AStar.cpp and AINodeContainer.cpp, including real
+grid/iterator, FreePath and search behavior. A normally constructed world and
+concrete physics fixture supply controlled rays; unrelated dependencies use the
+same bounded stubs as the connection harness. Real physics body filtering remains
+native and is outside the ray fixture's coverage. Memory-manager observations
+expose public search-node state without private production hooks; comparisons
+include float bits, search/output order, callbacks, allocations and logs.
+
+The corpus runs 4,399 GetPath queries across 2,048 seeded graphs plus fixed cases,
+104,173 production rays, 10 controlled exceptions and 6 nested searches. It covers
+repeated searches, direct success with retained sets/output, no-start/no-goal
+cases, nullable output, strict/adjacent
+thresholds, live endpoint aliases, captured limits, pre-visibility distances,
+reset/insertion/output exceptions and nested searches. Output allocation hooks
+edit a graph-field reference or parent link while preserving stored set ordering
+and object lifetimes. A native allocation arena makes graph pointer ties
+reproducible; leftover native allocation-failure orphans are reclaimed only after
+the handler has finished and graph nodes remain alive. The allocation observer
+reads its tracking vector only during armed faults inside the test's lifetime.
+
+`tools/astar-path-diff/mutate.ps1 <repo>` plants independent realistic bugs one
+at a time, requires actual output mismatches, restores exact source bytes and
+rebuilds both Rust profiles in `finally`. Run it without concurrent Rust edits
+or builds. Logs stay under `rust/target/astar-path-diff/`.
+
+Verification for this slice (Rust 1.97.0, native Windows x64 MSVC):
+
+* Workspace unit tests: **171 passed** (74 AI, 13 generate, 33 math, 27 system,
+  24 FFI; 19 added by this slice).
+* `cargo clippy --workspace --all-targets --locked -- -D warnings`: clean.
+* Path differential: **276,006 lines, 4-way identical** against `e465c7d`.
+* Earlier AStar search-core regression: **294,345 lines, 4-way identical**.
+* Mutation check: **12/12 caught, 0 equivalent mutants**, all actual output
+  mismatches. An initial double-precision distance mutant exposed a coverage
+  gap; an adjacent-float boundary case closed it, then all twelve mutations
+  were rerun. Exact source bytes were restored, both Rust libraries rebuilt,
+  and the clean four-way comparison passed again.
+* Full `Amnesia.sln` **Debug x64 and Release x64 passed**, including Lux and
+  all six editor/tool projects, using normal process access for MSVC.
+* Linux/WSL was not run. The Linux runner is supplied without claiming a pass.
+  Unit tests/Clippy used process-only `CARGO_INCREMENTAL=0`; no build settings
+  or toolchain pin changed. Source and project line endings were preserved;
+  the generated header was restored to CRLF after the final builds.
+
+Reload the Rust project in Visual Studio (or restart VS), then build Debug and
+Release x64. Load an enemy map and draw an enemy around corners or obstacles,
+then return to clear line of sight. Repeat after loading a save to exercise
+successive graph and direct paths. `cLuxEnemyPathfinder::MoveTo` calls this API;
+cached navigation data is sufficient, without rebuilding node connections.
+Gameplay validation remains for the owner.
+
+AINodeGenerator's placement logic is covered by the following slice.
 
 ## Troubleshooting
 

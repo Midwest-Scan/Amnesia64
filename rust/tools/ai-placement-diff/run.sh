@@ -22,11 +22,15 @@ for variant in "${variants[@]}"; do
   srcroot=$REPO
   [ "$variant" != original ] || srcroot=$PRISTINE
   core=$srcroot/HPL2/core
+  # The original variant uses the pristine generated header if the baseline
+  # includes it (rust/crates/hpl2-ffi/include); later ports remove types.
+  ffi_inc=$RUST/crates/hpl2-ffi/include
+  [ "$variant" != original ] || [ ! -d "$PRISTINE/rust/crates/hpl2-ffi/include" ] || ffi_inc=$PRISTINE/rust/crates/hpl2-ffi/include
   dir=$OUT/$variant
   mkdir -p "$dir"
   defs=() link=()
-  sources=("$core/sources/ai/AINodeGenerator.cpp" "$core/sources/graphics/Color.cpp" "$core/sources/impl/tinyXML/tinyxml.cpp"
-    "$core/sources/impl/tinyXML/tinyxmlparser.cpp" "$core/sources/impl/tinyXML/tinyxmlerror.cpp" "$HERE/stubs.cpp" "$HERE/diff_main.cpp")
+  sources=("$core/sources/ai/AINodeGenerator.cpp" "$core/sources/graphics/Color.cpp" "$core/sources/impl/tinyXml/tinyxml.cpp"
+    "$core/sources/impl/tinyXml/tinyxmlparser.cpp" "$core/sources/impl/tinyXml/tinyxmlerror.cpp" "$HERE/stubs.cpp" "$HERE/diff_main.cpp")
   # Earlier AI ports already exist in the pristine commit: select native bodies.
   if [[ "$variant" = original || "$variant" = cpp_switch_off ]]; then defs+=(-DHPL2_RUST_AI=0); fi
   if [[ "$variant" = rust_* ]]; then
@@ -38,7 +42,7 @@ for variant in "${variants[@]}"; do
     sources+=("$REPO/HPL2/core/sources/system/RustBridge.cpp")
     link+=("$RUST/target/$profile/libhpl2_rs.a" -lpthread -ldl -lm)
   fi
-  "$CXX" -std=c++17 -O2 -w -ffunction-sections -fdata-sections -Wl,--gc-sections "${defs[@]}" -I"$core/include" -I"$RUST/crates/hpl2-ffi/include" \
+  "$CXX" -std=c++17 -O2 -w -ffunction-sections -fdata-sections -Wl,--gc-sections "${defs[@]}" -I"$core/include" -I"$ffi_inc" \
     "${sources[@]}" "${link[@]}" -o "$dir/diff" >"$dir/compile.log" 2>&1 || { cat "$dir/compile.log"; exit 1; }
   "$dir/diff" "$OUT/$variant.txt"
   echo "$variant: $(wc -l < "$OUT/$variant.txt") lines"

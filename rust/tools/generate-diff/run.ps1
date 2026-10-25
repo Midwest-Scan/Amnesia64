@@ -48,10 +48,15 @@ if (-not $SkipCargo) {
 foreach ($BuildVariant in $Variants) {
     $SourceRoot = if ($BuildVariant -eq 'original') { $Pristine } else { $Repo }
     $Core = Join-Path $SourceRoot 'HPL2/core'
+    # The original variant uses the pristine generated header when the baseline
+    # includes rust/crates/hpl2-ffi/include (later ports remove types from it).
+    $FfiInclude = Join-Path $Repo 'rust/crates/hpl2-ffi/include'
+    $PristineFfi = Join-Path $Pristine 'rust/crates/hpl2-ffi/include'
+    if ($BuildVariant -eq 'original' -and (Test-Path -LiteralPath $PristineFfi)) { $FfiInclude = $PristineFfi }
     $BuildDir = Join-Path $Out $BuildVariant
     New-Item -ItemType Directory -Force -Path $BuildDir | Out-Null
     $CompileArgs = @('/nologo','/std:c++17','/EHsc','/O2','/MD','/fp:precise','/utf-8','/W0',
-        '/D_CRT_SECURE_NO_WARNINGS',"/I$Core/include", "/I$Repo/rust/crates/hpl2-ffi/include")
+        '/D_CRT_SECURE_NO_WARNINGS',"/I$Core/include", "/I$FfiInclude")
     if ($BuildVariant -eq 'cpp_switch_off') { $CompileArgs += '/DHPL2_RUST_GENERATE=0' }
     if ($BuildVariant -like 'rust_*') { $CompileArgs += @('/DHPL2_RUST_GENERATE=1','/DHARNESS_RUST=1') }
     $CompileArgs += @("$Core/sources/generate/VoxelMap.cpp", "$Core/sources/generate/Generate.cpp",

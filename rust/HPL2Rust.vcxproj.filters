@@ -31,23 +31,14 @@
     <Filter Include="crates\hpl-ai">
       <UniqueIdentifier>{311f7602-a92d-4c8d-87e2-6afea4394055}</UniqueIdentifier>
     </Filter>
-    <Filter Include="tools\astar-diff">
-      <UniqueIdentifier>{f8fd1bce-4c80-4395-97dc-e6112978a247}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="tools\ai-grid-diff">
-      <UniqueIdentifier>{5b32714b-56ac-4500-b99d-9982563ce11b}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="tools\ai-compile-diff">
-      <UniqueIdentifier>{990e8603-db3f-42b1-a9d9-31c686898f0f}</UniqueIdentifier>
-    </Filter>
     <Filter Include="tools\ai-state-diff">
       <UniqueIdentifier>{39456f1f-a1fa-48f2-a889-524fba294a60}</UniqueIdentifier>
     </Filter>
-    <Filter Include="tools\astar-path-diff">
-      <UniqueIdentifier>{e1151bec-214e-43b7-b0fa-ecc9f2c6bb6e}</UniqueIdentifier>
-    </Filter>
     <Filter Include="tools\ai-placement-diff">
       <UniqueIdentifier>{F913FF60-E0DD-47F0-9B0C-3162AAABE00A}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="tools\ai-nav-diff">
+      <UniqueIdentifier>{39e055d4-47fd-5b2d-9c67-a3b4da29d522}</UniqueIdentifier>
     </Filter>
     <Filter Include="tools\ai-scheduler-diff">
       <UniqueIdentifier>{4E5ED4E4-F880-45D2-ACFE-836A30FCDE72}</UniqueIdentifier>
@@ -58,6 +49,7 @@
     <None Include="Cargo.toml" />
     <None Include="rust-toolchain.toml" />
     <None Include="README.md" />
+    <None Include="PHASE2.md" />
     <None Include="HPL2Rust.props" />
     <None Include="crates\hpl-math\Cargo.toml">
       <Filter>crates\hpl-math</Filter>
@@ -260,65 +252,11 @@
     <None Include="crates\hpl-ai\src\astar.rs">
       <Filter>crates\hpl-ai</Filter>
     </None>
-    <None Include="crates\hpl2-ffi\src\ai.rs">
-      <Filter>crates\hpl2-ffi</Filter>
-    </None>
-    <None Include="tools\astar-diff\diff_main.cpp">
-      <Filter>tools\astar-diff</Filter>
-    </None>
-    <None Include="tools\astar-diff\stubs.cpp">
-      <Filter>tools\astar-diff</Filter>
-    </None>
-    <None Include="tools\astar-diff\run.ps1">
-      <Filter>tools\astar-diff</Filter>
-    </None>
-    <None Include="tools\astar-diff\run.sh">
-      <Filter>tools\astar-diff</Filter>
-    </None>
-    <None Include="tools\astar-diff\mutate.ps1">
-      <Filter>tools\astar-diff</Filter>
-    </None>
     <None Include="crates\hpl-ai\src\node_container.rs">
       <Filter>crates\hpl-ai</Filter>
     </None>
-    <None Include="crates\hpl2-ffi\src\ai_grid.rs">
-      <Filter>crates\hpl2-ffi</Filter>
-    </None>
-    <None Include="tools\ai-grid-diff\diff_main.cpp">
-      <Filter>tools\ai-grid-diff</Filter>
-    </None>
-    <None Include="tools\ai-grid-diff\stubs.cpp">
-      <Filter>tools\ai-grid-diff</Filter>
-    </None>
-    <None Include="tools\ai-grid-diff\run.ps1">
-      <Filter>tools\ai-grid-diff</Filter>
-    </None>
-    <None Include="tools\ai-grid-diff\run.sh">
-      <Filter>tools\ai-grid-diff</Filter>
-    </None>
-    <None Include="tools\ai-grid-diff\mutate.ps1">
-      <Filter>tools\ai-grid-diff</Filter>
-    </None>
     <None Include="crates\hpl-ai\src\node_compile.rs">
       <Filter>crates\hpl-ai</Filter>
-    </None>
-    <None Include="crates\hpl2-ffi\src\ai_compile.rs">
-      <Filter>crates\hpl2-ffi</Filter>
-    </None>
-    <None Include="tools\ai-compile-diff\diff_main.cpp">
-      <Filter>tools\ai-compile-diff</Filter>
-    </None>
-    <None Include="tools\ai-compile-diff\stubs.cpp">
-      <Filter>tools\ai-compile-diff</Filter>
-    </None>
-    <None Include="tools\ai-compile-diff\run.ps1">
-      <Filter>tools\ai-compile-diff</Filter>
-    </None>
-    <None Include="tools\ai-compile-diff\run.sh">
-      <Filter>tools\ai-compile-diff</Filter>
-    </None>
-    <None Include="tools\ai-compile-diff\mutate.ps1">
-      <Filter>tools\ai-compile-diff</Filter>
     </None>
     <None Include="crates\hpl-ai\src\state_machine.rs">
       <Filter>crates\hpl-ai</Filter>
@@ -344,29 +282,26 @@
     <None Include="crates\hpl-ai\src\astar_path.rs">
       <Filter>crates\hpl-ai</Filter>
     </None>
-    <None Include="crates\hpl2-ffi\src\ai_path.rs">
-      <Filter>crates\hpl2-ffi</Filter>
-    </None>
-    <None Include="tools\astar-path-diff\diff_main.cpp">
-      <Filter>tools\astar-path-diff</Filter>
-    </None>
-    <None Include="tools\astar-path-diff\stubs.cpp">
-      <Filter>tools\astar-path-diff</Filter>
-    </None>
-    <None Include="tools\astar-path-diff\run.ps1">
-      <Filter>tools\astar-path-diff</Filter>
-    </None>
-    <None Include="tools\astar-path-diff\run.sh">
-      <Filter>tools\astar-path-diff</Filter>
-    </None>
-    <None Include="tools\astar-path-diff\mutate.ps1">
-      <Filter>tools\astar-path-diff</Filter>
-    </None>
     <None Include="crates\hpl-ai\src\node_generator.rs">
       <Filter>crates\hpl-ai</Filter>
     </None>
     <None Include="crates\hpl2-ffi\src\ai_placement.rs">
       <Filter>crates\hpl2-ffi</Filter>
+    </None>
+    <None Include="crates\hpl-ai\src\nav.rs">
+      <Filter>crates\hpl-ai</Filter>
+    </None>
+    <None Include="crates\hpl2-ffi\src\ai_nav.rs">
+      <Filter>crates\hpl2-ffi</Filter>
+    </None>
+    <None Include="tools\ai-nav-diff\diff_main.cpp">
+      <Filter>tools\ai-nav-diff</Filter>
+    </None>
+    <None Include="tools\ai-nav-diff\stubs.cpp">
+      <Filter>tools\ai-nav-diff</Filter>
+    </None>
+    <None Include="tools\ai-nav-diff\run.sh">
+      <Filter>tools\ai-nav-diff</Filter>
     </None>
     <None Include="tools\ai-placement-diff\diff_main.cpp">
       <Filter>tools\ai-placement-diff</Filter>

@@ -24,12 +24,6 @@
 #include "math/Math.h"
 
 #include "system/LowLevelSystem.h"
-#include "system/RustBridge.h"
-
-#if HPL2_RUST_AI
-#include <exception>
-#include <new>
-#endif
 
 
 namespace hpl {
@@ -55,6 +49,10 @@ namespace hpl {
 
 
 	//-----------------------------------------------------------------------
+
+// With HPL2_RUST_AI set to 1, cAStarHandler's search runs in Rust
+// (AStarRust.cpp). cAStarNode stays declared and defined in both modes.
+#if !HPL2_RUST_AI
 
 	//////////////////////////////////////////////////////////////////////////
 	// CONSTRUCTORS
@@ -89,151 +87,6 @@ namespace hpl {
 
 	bool cAStarHandler::GetPath(const cVector3f& avStart, const cVector3f& avGoal,tAINodeList *apNodeList)
 	{
-#if HPL2_RUST_AI
-		// Lazy stack storage preserves native iterator lifetime without allocating
-		// or requiring a newer C++ language standard than the existing projects.
-		struct cPathIterator
-		{
-			alignas(cAINodeIterator) unsigned char mvStorage[sizeof(cAINodeIterator)];
-			cAINodeIterator *mpIterator;
-			cPathIterator() : mpIterator(NULL) {}
-			~cPathIterator() { if(mpIterator) mpIterator->~cAINodeIterator(); }
-			void Create(cAINodeContainer *apContainer, const cVector3f &avPosition, float afRadius)
-			{
-				mpIterator = new(static_cast<void*>(mvStorage)) cAINodeIterator(apContainer->GetNodeIterator(avPosition,afRadius));
-			}
-		};
-		struct cPathContext
-		{
-			cAStarHandler *mpHandler;
-			const cVector3f *mpStart;
-			const cVector3f *mpGoal;
-			tAINodeList *mpOutput;
-			cPathIterator mStartIterator;
-			cPathIterator mGoalIterator;
-			std::exception_ptr mException;
-		};
-		cPathContext context;
-		context.mpHandler = this;
-		context.mpStart = &avStart;
-		context.mpGoal = &avGoal;
-		context.mpOutput = apNodeList;
-		// Do not read the handler's uninitialized goal pointer on a first call.
-		HplAStarPathHost host = {
-			&context,
-			[](void *apCtx) -> float {
-				return static_cast<cPathContext*>(apCtx)->mpHandler->mpContainer->GetMaxHeight();
-			},
-			[](void *apCtx, int32_t alEndpoint) -> HplVector3f {
-				cPathContext *pCtx = static_cast<cPathContext*>(apCtx);
-				return ToRs(alEndpoint == 0 ? *pCtx->mpStart : *pCtx->mpGoal);
-			},
-			[](void *apCtx, bool *apVisible) -> bool {
-				cPathContext *pCtx = static_cast<cPathContext*>(apCtx);
-				try
-				{
-					*apVisible = pCtx->mpHandler->mpContainer->FreePath(*pCtx->mpStart,*pCtx->mpGoal,-1,eAIFreePathFlag_SkipDynamic);
-					return true;
-				}
-				catch(...) { pCtx->mException = std::current_exception(); return false; }
-			},
-			[](void *apCtx) {
-				static_cast<cPathContext*>(apCtx)->mpHandler->mpGoalNode = NULL;
-			},
-			[](void *apCtx) -> bool {
-				cPathContext *pCtx = static_cast<cPathContext*>(apCtx);
-				try
-				{
-					cAStarHandler *pHandler = pCtx->mpHandler;
-					STLDeleteAll(pHandler->m_setClosedList);
-					STLDeleteAll(pHandler->m_setOpenList);
-					pHandler->m_setGoalNodes.clear();
-					pHandler->mpGoalNode = NULL;
-					return true;
-				}
-				catch(...) { pCtx->mException = std::current_exception(); return false; }
-			},
-			[](void *apCtx, HplVector3f avPosition) {
-				static_cast<cPathContext*>(apCtx)->mpHandler->mvGoal = FromRs(avPosition);
-			},
-			[](void *apCtx) -> float {
-				return static_cast<cPathContext*>(apCtx)->mpHandler->mpContainer->GetMaxEdgeDistance();
-			},
-			[](void *apCtx, int32_t alEndpoint, float afRadius) -> bool {
-				cPathContext *pCtx = static_cast<cPathContext*>(apCtx);
-				try
-				{
-					cPathIterator &iterator = alEndpoint == 0 ? pCtx->mStartIterator : pCtx->mGoalIterator;
-					iterator.Create(pCtx->mpHandler->mpContainer,alEndpoint == 0 ? *pCtx->mpStart : *pCtx->mpGoal,afRadius);
-					return true;
-				}
-				catch(...) { pCtx->mException = std::current_exception(); return false; }
-			},
-			[](void *apCtx, int32_t alEndpoint) -> void* {
-				cPathContext *pCtx = static_cast<cPathContext*>(apCtx);
-				cAINodeIterator *pIterator = alEndpoint == 0 ? pCtx->mStartIterator.mpIterator : pCtx->mGoalIterator.mpIterator;
-				return pIterator->HasNext() ? pIterator->Next() : NULL;
-			},
-			[](void *, void *apNode) -> HplVector3f {
-				return ToRs(static_cast<cAINode*>(apNode)->GetPosition());
-			},
-			[](void *apCtx, int32_t alEndpoint, void *apNode, bool *apVisible) -> bool {
-				cPathContext *pCtx = static_cast<cPathContext*>(apCtx);
-				try
-				{
-					*apVisible = pCtx->mpHandler->mpContainer->FreePath(alEndpoint == 0 ? *pCtx->mpStart : *pCtx->mpGoal,
-						static_cast<cAINode*>(apNode)->GetPosition(),-1,eAIFreePathFlag_SkipDynamic);
-					return true;
-				}
-				catch(...) { pCtx->mException = std::current_exception(); return false; }
-			},
-			[](void *apCtx, void *apNode, float afDistance) -> bool {
-				cPathContext *pCtx = static_cast<cPathContext*>(apCtx);
-				try
-				{
-					pCtx->mpHandler->AddOpenNode(static_cast<cAINode*>(apNode),NULL,afDistance);
-					return true;
-				}
-				catch(...) { pCtx->mException = std::current_exception(); return false; }
-			},
-			[](void *apCtx, void *apNode) -> bool {
-				cPathContext *pCtx = static_cast<cPathContext*>(apCtx);
-				try
-				{
-					pCtx->mpHandler->m_setGoalNodes.insert(static_cast<cAINode*>(apNode));
-					return true;
-				}
-				catch(...) { pCtx->mException = std::current_exception(); return false; }
-			},
-			[](void *apCtx) -> bool {
-				cPathContext *pCtx = static_cast<cPathContext*>(apCtx);
-				try { pCtx->mpHandler->IterateAlgorithm(); return true; }
-				catch(...) { pCtx->mException = std::current_exception(); return false; }
-			},
-			[](void *apCtx) -> void* {
-				return static_cast<cPathContext*>(apCtx)->mpHandler->mpGoalNode;
-			},
-			[](void *apCtx) -> bool {
-				return static_cast<cPathContext*>(apCtx)->mpOutput != NULL;
-			},
-			[](void *apCtx, void *apSearch) -> bool {
-				cPathContext *pCtx = static_cast<cPathContext*>(apCtx);
-				try
-				{
-					// Preserve the field reference through allocation inside push_back.
-					pCtx->mpOutput->push_back(static_cast<cAStarNode*>(apSearch)->mpAINode);
-					return true;
-				}
-				catch(...) { pCtx->mException = std::current_exception(); return false; }
-			},
-			[](void *, void *apSearch) -> void* {
-				return static_cast<cAStarNode*>(apSearch)->mpParent;
-			}
-		};
-		bool bResult = hpl_astar_get_path(&host);
-		if(context.mException) std::rethrow_exception(context.mException);
-		return bResult;
-#else
 		float fMaxHeight = mpContainer->GetMaxHeight()*1.5f;
 
 		/////////////////////////////////////////////////
@@ -362,7 +215,6 @@ namespace hpl {
 		{
 			 return false;
 		}
-#endif
 	}
 
 	//-----------------------------------------------------------------------
@@ -375,77 +227,6 @@ namespace hpl {
 
 	void cAStarHandler::IterateAlgorithm()
 	{
-#if HPL2_RUST_AI
-		struct cSearchContext
-		{
-			cAStarHandler *mpHandler;
-			std::exception_ptr mException;
-		};
-		cSearchContext context = { this, std::exception_ptr() };
-		// Keep raw handles and live reads: callbacks can edit edges, limits,
-		// callbacks and search state. Each nested call owns its exception slot.
-		HplAStarSearchHost host = {
-			&context,
-			[](void *apCtx) -> bool {
-				return static_cast<cSearchContext*>(apCtx)->mpHandler->m_setOpenList.empty();
-			},
-			[](void *apCtx) -> int32_t {
-				return static_cast<cSearchContext*>(apCtx)->mpHandler->mlMaxIterations;
-			},
-			[](void *apCtx) -> void* {
-				cSearchContext *pCtx = static_cast<cSearchContext*>(apCtx);
-				try { return pCtx->mpHandler->GetBestNode(); }
-				catch(...) { pCtx->mException = std::current_exception(); return NULL; }
-			},
-			[](void *, void *apSearch) -> void* {
-				return static_cast<cAStarNode*>(apSearch)->mpAINode;
-			},
-			[](void *apCtx, void *apNode) -> bool {
-				return static_cast<cSearchContext*>(apCtx)->mpHandler->IsGoalNode(static_cast<cAINode*>(apNode));
-			},
-			[](void *apCtx, void *apSearch) {
-				static_cast<cSearchContext*>(apCtx)->mpHandler->mpGoalNode = static_cast<cAStarNode*>(apSearch);
-			},
-			[](void *, void *apNode) -> int32_t {
-				return static_cast<cAINode*>(apNode)->GetEdgeNum();
-			},
-			[](void *, void *apNode, int32_t alIndex) -> void* {
-				return static_cast<cAINode*>(apNode)->GetEdge(alIndex);
-			},
-			[](void *, void *apEdge) -> void* {
-				return static_cast<cAINodeEdge*>(apEdge)->mpNode;
-			},
-			[](void *apCtx, void *apParent, void *apChild, bool *apAllowed) -> bool {
-				cSearchContext *pCtx = static_cast<cSearchContext*>(apCtx);
-				try
-				{
-					cAStarHandler *pHandler = pCtx->mpHandler;
-					bool bAllowed = pHandler->mpCallback == NULL ||
-						pHandler->mpCallback->CanAddNode(static_cast<cAINode*>(apParent), static_cast<cAINode*>(apChild));
-					if(apAllowed) *apAllowed = bAllowed;
-					return true;
-				}
-				catch(...) { pCtx->mException = std::current_exception(); return false; }
-			},
-			[](void *, void *apEdge) -> float {
-				return static_cast<cAINodeEdge*>(apEdge)->mfDistance;
-			},
-			[](void *, void *apSearch) -> float {
-				return static_cast<cAStarNode*>(apSearch)->mfDistance;
-			},
-			[](void *apCtx, void *apNode, void *apParent, float afDistance) -> bool {
-				cSearchContext *pCtx = static_cast<cSearchContext*>(apCtx);
-				try
-				{
-					pCtx->mpHandler->AddOpenNode(static_cast<cAINode*>(apNode), static_cast<cAStarNode*>(apParent), afDistance);
-					return true;
-				}
-				catch(...) { pCtx->mException = std::current_exception(); return false; }
-			}
-		};
-		hpl_astar_iterate_algorithm(&host);
-		if(context.mException) std::rethrow_exception(context.mException);
-#else
 		int lIterationCount=0;
 		while(m_setOpenList.empty()==false && (mlMaxIterations <0 || lIterationCount < mlMaxIterations))
 		{
@@ -476,7 +257,6 @@ namespace hpl {
 
 			++lIterationCount;
 		}
-#endif
 	}
 
 
@@ -512,30 +292,6 @@ namespace hpl {
 
 	cAStarNode* cAStarHandler::GetBestNode()
 	{
-#if HPL2_RUST_AI
-		struct cOpenContext
-		{
-			tAStarNodeSetIt mNext;
-			tAStarNodeSetIt mEnd;
-		};
-		cOpenContext context = { m_setOpenList.begin(), m_setOpenList.end() };
-		HplAStarOpenHost host = {
-			&context,
-			[](void *apCtx, float *apCost) -> void* {
-				cOpenContext *pCtx = static_cast<cOpenContext*>(apCtx);
-				if(pCtx->mNext == pCtx->mEnd) return NULL;
-				cAStarNode *pNode = *pCtx->mNext++;
-				if(apCost) *apCost = pNode->mfCost;
-				return pNode;
-			}
-		};
-		cAStarNode *pBestNode = static_cast<cAStarNode*>(hpl_astar_get_best_node(&host));
-		// Faithful: native pointer ordering, and erase before the potentially
-		// throwing closed-set insertion. Allocation exceptions never cross Rust frames.
-		m_setOpenList.erase(m_setOpenList.find(pBestNode));
-		m_setClosedList.insert(pBestNode);
-		return pBestNode;
-#else
 		tAStarNodeSetIt it = m_setOpenList.begin();
 		tAStarNodeSetIt bestIt = it;
 		cAStarNode* pBestNode = *it; ++it;
@@ -558,19 +314,12 @@ namespace hpl {
 		m_setClosedList.insert(pBestNode);
 
 		return pBestNode;
-#endif
 	}
 
 	//-----------------------------------------------------------------------
 	
 	float cAStarHandler::Cost(float afDistance, cAINode *apAINode, cAStarNode *apParent)
 	{
-#if HPL2_RUST_AI
-		// Faithful: a root cost does not read either node's position.
-		if(apParent)
-			return hpl_astar_cost(afDistance, apAINode->GetPosition().y, true, apParent->mpAINode->GetPosition().y);
-		return hpl_astar_cost(afDistance, 0.0f, false, 0.0f);
-#else
 		if(apParent)
 		{
 			float fHeight = (1+fabs(apAINode->GetPosition().y - apParent->mpAINode->GetPosition().y));
@@ -578,19 +327,14 @@ namespace hpl {
 		}
 		else
 			return afDistance;
-#endif
 	}
 
 	//-----------------------------------------------------------------------
 
 	float cAStarHandler::Heuristic(const cVector3f& avStart, const cVector3f& avGoal)
 	{
-#if HPL2_RUST_AI
-		return hpl_astar_heuristic(ToRs(avStart), ToRs(avGoal));
-#else
 		//return cMath::Vector3DistSqr(avStart, avGoal);
 		return cMath::Vector3Dist(avStart, avGoal);
-#endif
 	}
 
 	//-----------------------------------------------------------------------
@@ -604,4 +348,6 @@ namespace hpl {
 	}
 
 	//-----------------------------------------------------------------------
+
+#endif // !HPL2_RUST_AI
 }

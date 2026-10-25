@@ -24,6 +24,13 @@
 #include "engine/EngineTypes.h"
 #include "math/MathTypes.h"
 
+#include "system/RustConfig.h"
+
+#if HPL2_RUST_AI
+// Rust-owned search state (rust/crates/hpl-ai/src/nav.rs, rust/PHASE2.md).
+struct HplAStar;
+#endif
+
 namespace hpl {
 
 	class cAINodeContainer;
@@ -84,6 +91,22 @@ namespace hpl {
 		
 		bool GetPath(const cVector3f& avStart, const cVector3f& avGoal, tAINodeList *apNodeList);
 
+#if HPL2_RUST_AI
+		/**
+		 * Set max number of times the algorithm is iterated.
+		 * \param alX -1 = until OpenList is empty
+		 */
+		void SetMaxIterations(int alX);
+
+		void SetCallback(iAStarCallback *apCallback){ mpCallback = apCallback;}
+
+	private:
+		cAINodeContainer *mpContainer;
+		iAStarCallback *mpCallback;
+
+		// Open/closed/goal sets, search nodes and the iteration limit.
+		HplAStar *mpRs;
+#else
 		/**
 		 * Set max number of times the algorithm is iterated.
 		 * \param alX -1 = until OpenList is empty
@@ -117,6 +140,7 @@ namespace hpl {
 
 		tAStarNodeSet m_setOpenList;
 		tAStarNodeSet m_setClosedList;
+#endif
 	};
 
 };

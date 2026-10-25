@@ -43,36 +43,21 @@ typedef wchar_t HplWChar;
 
 #define HPL_COLLISION_INTERSECT 2
 
-// Live access to C++ AStar state. Handles are opaque: Rust never dereferences
-// or borrows engine storage across a callback, including a nested GetPath.
-// Every callback is required and must return normally (never throw).
-typedef struct HplAStarSearchHost {
-  void *ctx;
-  bool (*open_empty)(void *ctx);
-  int32_t (*max_iterations)(void *ctx);
-  // Null requests return to C++ to rethrow a saved exception.
-  void *(*best_node)(void *ctx);
-  void *(*graph_node)(void *ctx, void *search);
-  bool (*is_goal)(void *ctx, void *node);
-  void (*set_goal)(void *ctx, void *search);
-  int32_t (*edge_count)(void *ctx, void *node);
-  void *(*edge)(void *ctx, void *node, int32_t index);
-  void *(*edge_node)(void *ctx, void *edge);
-  // Success is separate from permission: false stops to rethrow, while
-  // true with *allowed=false only skips this edge. Write after user code.
-  bool (*can_add)(void *ctx, void *parent, void *child, bool *allowed);
-  float (*edge_distance)(void *ctx, void *edge);
-  float (*search_distance)(void *ctx, void *search);
-  // False requests immediate return to C++ to rethrow a saved exception.
-  bool (*add_open)(void *ctx, void *node, void *parent, float distance);
-} HplAStarSearchHost;
+// A container's navigation graph (opaque).
+typedef struct HplAINavGraph HplAINavGraph;
 
-// Traverses the native open set in its comparator order, without allocation.
-typedef struct HplAStarOpenHost {
-  void *ctx;
-  // Return the next opaque search node and write its cost. Null ends input.
-  void *(*next)(void *ctx, float *cost);
-} HplAStarOpenHost;
+// One navigation node, owned by its graph (opaque).
+typedef struct HplAINode HplAINode;
+
+// A `cAStarHandler`'s search state (opaque).
+typedef struct HplAStar HplAStar;
+
+// A narrow string (`tString` / `const char*`) by pointer and length.
+// A null `ptr` stands for a null `const char*` where the C++ accepts one.
+typedef struct HplStr {
+  const uint8_t *ptr;
+  size_t len;
+} HplStr;
 
 // `cVector3f`
 typedef struct HplVector3f {
@@ -81,30 +66,23 @@ typedef struct HplVector3f {
   float z;
 } HplVector3f;
 
-// All callbacks are required and must not throw across Rust. The native
-// iterator returns null only at exhaustion. Mutators return false on a saved
-// exception; visible writes its result separately from its success status.
-typedef struct HplAINodeCompileHost {
-  void *ctx;
-  void *(*next_candidate)(void *ctx);
-  struct HplVector3f (*position)(void *ctx, void *node);
-  float (*max_distance)(void *ctx);
-  float (*max_height)(void *ctx);
-  bool (*visible)(void *ctx, void *candidate, bool *visible);
-  bool (*add_edge)(void *ctx, void *candidate);
-  bool (*sort_edges)(void *ctx);
-  int32_t (*max_edges)(void *ctx);
-  size_t (*edge_count)(void *ctx);
-  bool (*resize_edges)(void *ctx, size_t count);
-  float (*edge_distance)(void *ctx, size_t index);
-  int32_t (*min_edges)(void *ctx);
-} HplAINodeCompileHost;
+// `cAINodeEdge`: `{float mfDistance; float mfSqrDistance; cAINode *mpNode;}`.
+// `cAINode::GetEdge` returns a pointer to these in place.
+typedef struct HplAINodeEdge {
+  float distance;
+  float sqr_distance;
+  void *node;
+} HplAINodeEdge;
 
-// `cVector2f`
-typedef struct HplVector2f {
-  float x;
-  float y;
-} HplVector2f;
+// What `Compile` calls back into C++. Both callbacks are required.
+typedef struct HplAINavCompileHost {
+  void *ctx;
+  // `FreePath(start, end, -1, SkipDynamic | SkipVolatile)` into
+  // `*visible`; returns false if it threw.
+  bool (*free_path)(void *ctx, struct HplVector3f start, struct HplVector3f end, bool *visible);
+  // `std::sort(edges, edges + count, cSortEndNodes())`; false if it threw.
+  bool (*sort_edges)(void *ctx, struct HplAINodeEdge *edges, size_t count);
+} HplAINavCompileHost;
 
 // `cVector2l`
 typedef struct HplVector2l {
@@ -112,56 +90,25 @@ typedef struct HplVector2l {
   int32_t y;
 } HplVector2l;
 
-// Initialized numeric grid members, NOT a view of `cAINodeContainer`.
-typedef struct HplAINodeGridDimensions {
-  struct HplVector2f minimum;
-  struct HplVector2f maximum;
-  struct HplVector2l map_size;
-} HplAINodeGridDimensions;
+// Grid cursor stored inside the `cAINodeIterator` value type.
+typedef struct HplAINodeIterState {
+  struct HplVector2l start;
+  struct HplVector2l end;
+  struct HplVector2l position;
+  int32_t cell;
+  uint32_t item;
+} HplAINodeIterState;
 
-// Live grid construction callbacks. Every callback is required and must not
-// throw. Resize/push report false to stop, then C++ rethrows its saved exception.
-typedef struct HplAINodeGridHost {
-  void *ctx;
-  size_t (*node_count)(void *ctx);
-  void *(*node)(void *ctx, size_t index);
-  struct HplVector3f (*position)(void *ctx, void *node);
-  int32_t (*nodes_per_grid)(void *ctx);
-  void (*set_bounds)(void *ctx, struct HplVector2f minimum, struct HplVector2f maximum);
-  void (*set_map_size)(void *ctx, struct HplVector2l size);
-  bool (*resize_grids)(void *ctx, size_t count);
-  // Called only after bounds/map-size assignment; does not read cell size.
-  struct HplAINodeGridDimensions (*dimensions)(void *ctx);
-  void (*set_cell_size)(void *ctx, struct HplVector2f size);
-  struct HplVector2f (*cell_size)(void *ctx);
-  size_t (*grid_count)(void *ctx);
-  bool (*push_node)(void *ctx, size_t index, void *node);
-} HplAINodeGridHost;
-
-// All callbacks are required and must not throw across Rust. Endpoint selectors
-// are int32_t (0=start, 1=goal). Null handles mean exhaustion/absence. Visibility
-// separates its result from callback success; false success saves an exception
-// for C++ to rethrow after Rust returns. Native endpoint references remain live.
+// What `GetPath` calls back into C++. All callbacks are required.
 typedef struct HplAStarPathHost {
   void *ctx;
-  float (*max_height)(void *ctx);
-  struct HplVector3f (*endpoint)(void *ctx, int32_t endpoint);
-  bool (*direct_visible)(void *ctx, bool *visible);
-  void (*clear_goal)(void *ctx);
-  bool (*reset_search)(void *ctx);
-  void (*set_goal_position)(void *ctx, struct HplVector3f goal);
-  float (*max_distance)(void *ctx);
-  bool (*begin_candidates)(void *ctx, int32_t endpoint, float radius);
-  void *(*next_candidate)(void *ctx, int32_t endpoint);
-  struct HplVector3f (*position)(void *ctx, void *node);
-  bool (*visible)(void *ctx, int32_t endpoint, void *node, bool *visible);
-  bool (*add_start)(void *ctx, void *node, float distance);
-  bool (*add_goal)(void *ctx, void *node);
-  bool (*iterate)(void *ctx);
-  void *(*goal_node)(void *ctx);
-  bool (*has_output)(void *ctx);
-  bool (*append_path)(void *ctx, void *search);
-  void *(*parent)(void *ctx, void *search);
+  // `FreePath(start, end, -1, SkipDynamic)` into `*visible`; false if it threw.
+  bool (*free_path)(void *ctx, struct HplVector3f start, struct HplVector3f end, bool *visible);
+  // `mpCallback == NULL || mpCallback->CanAddNode(parent, child)` into
+  // `*allowed`; false if it threw.
+  bool (*can_add_node)(void *ctx, void *parent, void *child, bool *allowed);
+  // `apNodeList->push_back(node)`; false if it threw.
+  bool (*append)(void *ctx, void *node);
 } HplAStarPathHost;
 
 // All callbacks are required. False success denotes a saved native exception;
@@ -283,6 +230,12 @@ typedef struct HplFrustumProjection {
   int32_t projection_type;
 } HplFrustumProjection;
 
+// `cVector2f`
+typedef struct HplVector2f {
+  float x;
+  float y;
+} HplVector2f;
+
 // Borrowed view of a `cFrustum`'s derived geometry. The pointers must stay
 // valid for the duration of the call.
 typedef struct HplFrustumView {
@@ -353,13 +306,6 @@ typedef struct HplTriEdge {
 
 // Receives the result of [`hpl_math_create_edges`] (called exactly once).
 typedef void (*HplEdgeSink)(void *context, const struct HplTriEdge *edges, size_t count);
-
-// A narrow string (`tString` / `const char*`) by pointer and length.
-// A null `ptr` stands for a null `const char*` where the C++ accepts one.
-typedef struct HplStr {
-  const uint8_t *ptr;
-  size_t len;
-} HplStr;
 
 // Receives wide text.
 typedef void (*HplWStrSink)(void *ctx, const HplWChar *data, size_t len);
@@ -439,39 +385,99 @@ typedef struct HplLogicTimerState {
 extern "C" {
 #endif // __cplusplus
 
-void hpl_astar_iterate_algorithm(const struct HplAStarSearchHost *host);
+struct HplAINavGraph *hpl_ai_nav_new(void);
 
-// Select from a nonempty native open set. The C++ wrapper then transfers the
-// result to its closed set, retaining C++ allocation/exception semantics.
-void *hpl_astar_get_best_node(const struct HplAStarOpenHost *host);
+void hpl_ai_nav_free(struct HplAINavGraph *g);
 
-float hpl_astar_cost(float distance, float node_y, bool has_parent, float parent_y);
+// `ReserveSpace`
+void hpl_ai_nav_reserve(struct HplAINavGraph *g, size_t count);
 
-float hpl_astar_heuristic(struct HplVector3f start, struct HplVector3f goal);
+// `AddNode`: `facade` is the new `cAINode`. Returns its Rust node, valid
+// for the lifetime of the graph.
+struct HplAINode *hpl_ai_nav_add_node(struct HplAINavGraph *g,
+                                      struct HplStr name,
+                                      int32_t id,
+                                      struct HplVector3f position,
+                                      void *user_data,
+                                      void *facade);
 
-void hpl_ai_node_compile(void *source, const struct HplAINodeCompileHost *host);
+// `GetNodeNum`
+int32_t hpl_ai_nav_node_num(const struct HplAINavGraph *g);
 
-void hpl_ai_node_add_edge(struct HplVector3f start,
-                          struct HplVector3f end,
-                          float *distance,
-                          float *squared);
+// `GetNode`: the facade, or NULL when out of range.
+void *hpl_ai_nav_node(const struct HplAINavGraph *g, int32_t index);
 
-void hpl_ai_node_build_grid(const struct HplAINodeGridHost *host);
+// `GetNodeFromName`
+void *hpl_ai_nav_node_from_name(const struct HplAINavGraph *g, struct HplStr name);
 
-struct HplVector2l hpl_ai_node_grid_position(struct HplVector2f local,
-                                             struct HplVector2f cell,
-                                             struct HplVector2l map_size);
+// `GetNodeFromID`
+void *hpl_ai_nav_node_from_id(const struct HplAINavGraph *g, int32_t id);
 
-size_t hpl_ai_node_grid_index(struct HplVector2l position,
-                              struct HplVector2l map_size,
-                              size_t count);
+void hpl_ai_nav_set_max_edges(struct HplAINavGraph *g, int32_t count);
 
-bool hpl_ai_node_iterator_increment(struct HplVector2l position,
-                                    struct HplVector2l start,
-                                    struct HplVector2l end,
-                                    struct HplVector2l *out);
+void hpl_ai_nav_set_min_edges(struct HplAINavGraph *g, int32_t count);
 
-bool hpl_astar_get_path(const struct HplAStarPathHost *host);
+void hpl_ai_nav_set_max_edge_distance(struct HplAINavGraph *g, float distance);
+
+float hpl_ai_nav_max_edge_distance(const struct HplAINavGraph *g);
+
+void hpl_ai_nav_set_max_height(struct HplAINavGraph *g, float height);
+
+float hpl_ai_nav_max_height(const struct HplAINavGraph *g);
+
+// `BuildNodeGridMap`
+void hpl_ai_nav_build_grid(struct HplAINavGraph *g);
+
+// `Compile`. Returns early if a callback threw.
+void hpl_ai_nav_compile(struct HplAINavGraph *g, const struct HplAINavCompileHost *host);
+
+// `cAINodeIterator(container, position, radius)`
+void hpl_ai_nav_iter_begin(const struct HplAINavGraph *g,
+                           struct HplVector3f position,
+                           float radius,
+                           struct HplAINodeIterState *out);
+
+// `cAINodeIterator::HasNext`
+bool hpl_ai_nav_iter_has_next(const struct HplAINavGraph *g, const struct HplAINodeIterState *s);
+
+// `cAINodeIterator::Next`: the facade, or NULL past the end.
+void *hpl_ai_nav_iter_next(const struct HplAINavGraph *g, struct HplAINodeIterState *s);
+
+// `cAINode::GetEdgeNum`
+int32_t hpl_ai_node_edge_num(const struct HplAINode *n);
+
+// `cAINode::GetEdge`: valid until an edge is added to this node.
+// Deviation: out of range (undefined in the original) returns NULL.
+struct HplAINodeEdge *hpl_ai_node_edge(struct HplAINode *n, int32_t index);
+
+// `cAINode::GetPosition`: valid for the lifetime of the graph.
+const struct HplVector3f *hpl_ai_node_position(const struct HplAINode *n);
+
+// `cAINode::GetID`
+int32_t hpl_ai_node_id(const struct HplAINode *n);
+
+// `cAINode::AddEdge`
+void hpl_ai_node_add_edge(struct HplAINode *n, const struct HplAINode *target);
+
+// An edge read from a `.nodes` file (`LoadFromFile`). `target` is the
+// facade, or NULL if the file names a node that does not exist.
+void hpl_ai_node_push_edge(struct HplAINode *n, void *target, float distance, float sqr_distance);
+
+struct HplAStar *hpl_ai_astar_new(void);
+
+void hpl_ai_astar_free(struct HplAStar *a);
+
+// `SetMaxIterations`: -1 = until the open list is empty. Read live.
+void hpl_ai_astar_set_max_iterations(struct HplAStar *a, int32_t count);
+
+// `GetPath`. `has_output` is `apNodeList != NULL`. Returns false when no
+// path was found or a callback threw (the caller then rethrows).
+bool hpl_ai_astar_get_path(struct HplAStar *a,
+                           struct HplAINavGraph *g,
+                           struct HplVector3f start,
+                           struct HplVector3f goal,
+                           bool has_output,
+                           const struct HplAStarPathHost *host);
 
 void hpl_ai_node_generator_place(const struct HplAINodePlacementHost *host);
 

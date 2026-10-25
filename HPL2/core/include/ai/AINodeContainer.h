@@ -25,6 +25,14 @@
 
 #include "physics/PhysicsWorld.h"
 
+#include "system/RustConfig.h"
+
+#if HPL2_RUST_AI
+// Rust-owned navigation data (rust/crates/hpl-ai/src/nav.rs, rust/PHASE2.md).
+struct HplAINavGraph;
+struct HplAINode;
+#endif
+
 namespace hpl {
 
 	class cWorld;
@@ -63,6 +71,22 @@ namespace hpl {
 
 		void AddEdge(cAINode *pNode);
 
+#if HPL2_RUST_AI
+		// The node's data lives in Rust; the edges returned by GetEdge are
+		// stored there with this class's layout and, as with the original
+		// vector, are invalidated when an edge is added.
+		int GetEdgeNum() const;
+		cAINodeEdge* GetEdge(int alIdx);
+
+		const cVector3f& GetPosition();
+
+		const tString& GetName(){ return msName;}
+		int GetID();
+
+	private:
+		tString msName;
+		HplAINode *mpRs;
+#else
 		int GetEdgeNum() const { return (int)mvEdges.size();}
 		inline cAINodeEdge* GetEdge(int alIdx) { return &mvEdges[alIdx];}
 
@@ -78,6 +102,7 @@ namespace hpl {
 		void *mpUserData;
 
 		tAINodeEdgeVec mvEdges;
+#endif
 	};
 
 	typedef std::vector<cAINode*> tAINodeVec;
@@ -141,6 +166,10 @@ namespace hpl {
 		cAINode *Next();
 
 	private:
+#if HPL2_RUST_AI
+		cAINodeContainer *mpContainer;
+		int mlState[8];	// Rust grid cursor (HplAINodeIterState)
+#else
 		bool IncGridPos();
 
 		cAINodeContainer *mpContainer;
@@ -152,6 +181,7 @@ namespace hpl {
 
 		tAINodeList *mpNodeList;
 		tAINodeListIt mNodeIt;
+#endif
 	};
 
 	//--------------------------------
@@ -159,6 +189,9 @@ namespace hpl {
 	class cAINodeContainer
 	{
 	friend class cAINodeIterator;
+#if HPL2_RUST_AI
+	friend class cAStarHandler;
+#endif
 	public:
 		cAINodeContainer(	const tString& asName,const tString &asNodeName,
 							cWorld *apWorld, const cVector3f &avCollideSize);
@@ -192,7 +225,11 @@ namespace hpl {
 		 * Get a node.
 		 * \param alIdx index of node.
 		 */
+#if HPL2_RUST_AI
+		cAINode* GetNode(int alIdx);
+#else
 		inline cAINode* GetNode(int alIdx){return mvNodes[alIdx];}
+#endif
 
 		/**
 		 * Gets a node based on the name.
@@ -233,6 +270,15 @@ namespace hpl {
 						tAIFreePathFlag aFlags=0, iAIFreePathCallback *apCallback=NULL);
 
 
+#if HPL2_RUST_AI
+		// Stored in Rust, where Compile and GetPath read them.
+		void SetMaxEdges(int alX);
+		void SetMinEdges(int alX);
+		void SetMaxEdgeDistance(float afX);
+		float GetMaxEdgeDistance() const;
+		void SetMaxHeight(float afX);
+		float GetMaxHeight() const;
+#else
 		/**
 		 * Sets the max number of end node added to a node.
 		 * \param alX The max number, -1 = unlimited
@@ -254,6 +300,7 @@ namespace hpl {
 
 		void SetMaxHeight(float afX){ mfMaxHeight = afX;}
 		float GetMaxHeight()const{ return mfMaxHeight;}
+#endif
 
 		/**
 		 * When calculating if there is a free path between two nodes. Is the node postion the center of the collider.
@@ -273,6 +320,19 @@ namespace hpl {
 		void LoadFromFile(const tWString &asFile);
 
 	private:
+#if HPL2_RUST_AI
+		tString msName;
+		tString msNodeName;
+
+		cWorld *mpWorld;
+		cVector3f mvSize;
+
+		cAINodeRayCallback *mpRayCallback;
+		bool mbNodeIsAtCenter;
+
+		// Nodes, lookups, grid map and properties.
+		HplAINavGraph *mpRs;
+#else
 		cVector2l GetGridPosFromLocal(const cVector2f &avLocalPos);
 		cAIGridNode* GetGrid(const cVector2l& avPos);
 
@@ -302,6 +362,7 @@ namespace hpl {
 		int mlMinNodeEnds;
 		float mfMaxEndDistance;
 		float mfMaxHeight;
+#endif
 	};
 
 };

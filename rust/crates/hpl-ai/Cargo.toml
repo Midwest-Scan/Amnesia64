@@ -1,7 +1,7 @@
 [package]
 name = "hpl-ai"
 version = "0.1.0"
-description = "Rust port of the HPL2 AI search algorithms"
+description = "Rust port of HPL2 AI: Rust-owned navigation graph and A*, state machine and node placement logic"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true

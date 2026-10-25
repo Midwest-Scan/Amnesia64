@@ -180,6 +180,7 @@
     <ClInclude Include="include\system\SHA1.h" />
     <ClInclude Include="include\system\String.h" />
     <ClInclude Include="include\system\RustBridge.h" />
+    <ClInclude Include="include\system\RustConfig.h" />
     <ClInclude Include="include\system\System.h" />
     <ClInclude Include="include\system\SystemTypes.h" />
     <ClInclude Include="include\system\Thread.h" />
@@ -738,8 +739,10 @@
     <ClCompile Include="sources\resources\XmlDocument.cpp" />
     <ClCompile Include="sources\ai\AI.cpp" />
     <ClCompile Include="sources\ai\AINodeContainer.cpp" />
+    <ClCompile Include="sources\ai\AINodeContainerRust.cpp" />
     <ClCompile Include="sources\ai\AINodeGenerator.cpp" />
     <ClCompile Include="sources\ai\AStar.cpp" />
+    <ClCompile Include="sources\ai\AStarRust.cpp" />
     <ClCompile Include="sources\ai\StateMachine.cpp" />
     <ClCompile Include="sources\math\BoundingVolume.cpp" />
     <ClCompile Include="sources\math\CRC.cpp" />
