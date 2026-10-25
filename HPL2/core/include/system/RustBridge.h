@@ -37,6 +37,11 @@
 #define HPL2_RUST_SYSTEM 1
 #endif
 
+// cVoxelMap algorithms (allocation and renderer stay in C++)
+#ifndef HPL2_RUST_GENERATE
+#define HPL2_RUST_GENERATE 1
+#endif
+
 #include <cstddef>
 #include <cstring>
 

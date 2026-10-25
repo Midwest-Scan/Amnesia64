@@ -22,6 +22,12 @@
     <Filter Include="tools\system-core-diff">
       <UniqueIdentifier>{4a0e84de-3471-4e8b-b01a-9abaeb94b376}</UniqueIdentifier>
     </Filter>
+    <Filter Include="crates\hpl-generate">
+      <UniqueIdentifier>{ea0b49a0-cde3-4501-86d1-fcfeee597f72}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="tools\generate-diff">
+      <UniqueIdentifier>{00c60ecb-eaab-494b-9f08-1572e44ed594}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <None Include="build.cmd" />
@@ -190,6 +196,36 @@
     </None>
     <None Include="tools\system-core-diff\mutate.ps1">
       <Filter>tools\system-core-diff</Filter>
+    </None>
+    <None Include="crates\hpl-generate\Cargo.toml">
+      <Filter>crates\hpl-generate</Filter>
+    </None>
+    <None Include="crates\hpl-generate\src\lib.rs">
+      <Filter>crates\hpl-generate</Filter>
+    </None>
+    <None Include="crates\hpl-generate\src\voxel_map.rs">
+      <Filter>crates\hpl-generate</Filter>
+    </None>
+    <None Include="crates\hpl2-ffi\src\generate.rs">
+      <Filter>crates\hpl2-ffi</Filter>
+    </None>
+    <None Include="tools\generate-diff\diff_main.cpp">
+      <Filter>tools\generate-diff</Filter>
+    </None>
+    <None Include="tools\generate-diff\stubs.cpp">
+      <Filter>tools\generate-diff</Filter>
+    </None>
+    <None Include="tools\generate-diff\capture_graphics.h">
+      <Filter>tools\generate-diff</Filter>
+    </None>
+    <None Include="tools\generate-diff\run.sh">
+      <Filter>tools\generate-diff</Filter>
+    </None>
+    <None Include="tools\generate-diff\run.ps1">
+      <Filter>tools\generate-diff</Filter>
+    </None>
+    <None Include="tools\generate-diff\mutate.ps1">
+      <Filter>tools\generate-diff</Filter>
     </None>
     <ClInclude Include="crates\hpl2-ffi\include\hpl2_rs.h">
       <Filter>crates\hpl2-ffi</Filter>

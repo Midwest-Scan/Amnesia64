@@ -46,6 +46,33 @@ typedef wchar_t HplWChar;
 // Receives one log line (UTF-8, no trailing newline). Must be thread safe.
 typedef void (*HplLogCallback)(int32_t level, const char *message);
 
+// `cVector3l`
+typedef struct HplVector3l {
+  int32_t x;
+  int32_t y;
+  int32_t z;
+} HplVector3l;
+
+// `cVector3f`
+typedef struct HplVector3f {
+  float x;
+  float y;
+  float z;
+} HplVector3f;
+
+// Reentrant access to a live C++ voxel map. All callbacks are required.
+// No buffer borrow is retained across draw_sphere, which may resize the map.
+typedef struct HplVoxelRenderHost {
+  void *ctx;
+  struct HplVector3l (*size)(void *ctx);
+  uint8_t (*byte)(void *ctx, size_t index);
+  struct HplVector3f (*position)(void *ctx);
+  float (*voxel_size)(void *ctx);
+  // C++ reads the current referenced color immediately before DrawSphere.
+  // False requests an immediate return so C++ can rethrow a saved exception.
+  bool (*draw_sphere)(void *ctx, struct HplVector3f center, float radius);
+} HplVoxelRenderHost;
+
 // `cMatrixf`, row-major `m[row][col]`.
 typedef struct HplMatrixf {
   float m[4][4];
@@ -58,13 +85,6 @@ typedef struct HplPlanef {
   float c;
   float d;
 } HplPlanef;
-
-// `cVector3f`
-typedef struct HplVector3f {
-  float x;
-  float y;
-  float z;
-} HplVector3f;
 
 // `cSpheref`: radius first, then centre.
 typedef struct HplSpheref {
@@ -216,13 +236,6 @@ typedef struct HplF32Out {
   void *ctx;
 } HplF32Out;
 
-// `cVector3l`
-typedef struct HplVector3l {
-  int32_t x;
-  int32_t y;
-  int32_t z;
-} HplVector3l;
-
 // The C++ parser's variables and file access, for [`hpl_preprocess_parse`].
 typedef struct HplPreprocessHost {
   void *ctx;
@@ -270,6 +283,19 @@ size_t hpl_rs_wchar_size(void);
 
 // Version string of the Rust library (static, NUL-terminated).
 const char *hpl_rs_version(void);
+
+// `SetSize` allocation arithmetic. C++ retains delete/new[] and zeroing so
+// allocation exceptions cannot unwind through a Rust callback frame.
+size_t hpl_voxel_map_set_size(struct HplVector3l size);
+
+// `SetVoxel`: `data` must cover the current allocation and be initialized.
+void hpl_voxel_map_set_voxel(uint8_t *data,
+                             struct HplVector3l size,
+                             struct HplVector3l pos,
+                             uint8_t value);
+
+// `DebugRender`: callbacks access live state; they must not throw exceptions.
+void hpl_voxel_map_debug_render(const struct HplVoxelRenderHost *host);
 
 // `UpdatePlanes`: writes 6 planes. `custom_far_proj` may be null.
 void hpl_frustum_compute_planes(const struct HplMatrixf *view_proj,

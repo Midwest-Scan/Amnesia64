@@ -9,11 +9,13 @@ moving on.
 |---|---|---|
 | `HPL2/core/*/math` | **Ported** (cMath, cQuaternion, cFrustum, cBoundingVolume, cCRC) | `HPL2_RUST_MATH` |
 | `HPL2/core/*/system` | **Partly ported** (cString, cPreprocessParser, cLogicTimer, VideoComp; SHA1 in Rust only) | `HPL2_RUST_SYSTEM` |
+| `HPL2/core/*/generate` | **Algorithms ported** (cVoxelMap sizing, writes, debug traversal; C++ allocation/factory shell retained) | `HPL2_RUST_GENERATE` |
 | everything else | C++ | – |
 
 The Lux project lives under `amnesia/src/game/` in this checkout. Editors
-remain C++; do not port them. CMake files are unused: integration and build
-verification use `Amnesia.sln` and the Visual Studio projects.
+remain C++; do not port them. Engine/game CMake files are not used for this
+port: integration and build verification use `Amnesia.sln` and the Visual
+Studio projects (including the existing OpenAL dependency build wrapper).
 
 ## Building
 
@@ -48,10 +50,12 @@ rust/
   crates/
     hpl-math/           Port of HPL2/core/{include,sources}/math. Pure Rust, no C ABI.
     hpl-system/         Strings, shader preprocessor, SHA1, logic timer, video mode ordering
+    hpl-generate/       Voxel allocation arithmetic, flat indexing and live debug traversal
     hpl2-ffi/           The C ABI: builds hpl2_rs.lib and generates include/hpl2_rs.h
   tools/math-diff/      Differential test: original C++ vs. Rust, bit for bit
   tools/system-diff/    The same for cString and cPreprocessParser
   tools/system-core-diff/ LogicTimer and VideoComp; native MSVC and Linux runners
+  tools/generate-diff/  VoxelMap public API, real graphics-interface mock, allocation/exception traces
 ```
 
 C++ side:
@@ -63,6 +67,7 @@ HPL2/core/sources/math/MathRust.cpp      cMath implemented by calling Rust
 HPL2/core/sources/system/StringRust.cpp  cString implemented by calling Rust
 HPL2/core/sources/system/LogicTimer.cpp  per-function Rust forwards, original bodies retained
 HPL2/core/sources/system/Platform.cpp    VideoComp forwards; variadic wrappers stay C++
+HPL2/core/sources/generate/VoxelMap.cpp per-function forwards; allocation/ownership stay C++
 ```
 
 ## How a module is ported
@@ -111,6 +116,13 @@ FFI conventions:
   to double in C++; Rust invokes it only where the original reads time.
 * Enums cross as `int32_t`. C++ bool members that might be uninitialised go
   through `RsBool`.
+* `HplVoxelRenderHost` reads live C++ members and buffer bytes through
+  callbacks. No Rust slice/reference to map storage survives a drawing call:
+  a virtual `DrawSphere` may resize the buffer or change later cells, transform
+  or the caller's referenced color. The color stays in the C++ context.
+  The drawing callback catches C++ exceptions into `std::exception_ptr` and
+  returns false; Rust stops immediately, then the C++ wrapper rethrows after
+  Rust returns. C++ exceptions must never unwind through an `extern "C"` frame.
 * All engine Rust code is exported from the single `hpl2-ffi` crate: a
   program can only link one Rust static library.
 * `panic = "abort"`; a panic is reported through `hpl::Error` first.
@@ -204,12 +216,97 @@ The C++ destructor and inline getters/`SetSpeedMul` stay in C++, as do the
 message-box `va_list` wrappers. No new module switch, crate or dependency
 was needed; the existing `HPL2_RUST_SYSTEM` switch controls this slice.
 
-Next candidates: `generate/VoxelMap` fits phase 1 with C++ buffer ownership
-and drawing callbacks; then carefully bounded AStar host callbacks.
+Next candidates: carefully bounded AI algorithms with host callbacks.
 Win32 platform/thread/mutex work, SDL timing, MemoryManager and Container
 remain C++. Container is header-only templates plus serializer adapters;
 SerializeClass and object hierarchies remain deferred to phase 2. Do not
 start phase 2 or add runtime dependencies without the owner's approval.
+
+## VoxelMap fidelity and verification
+
+`hpl-generate` contains the algorithmic part of `generate/VoxelMap.cpp`.
+The three exports in `hpl2-ffi/src/generate.rs` serve `SetSize`, `SetVoxel`
+and `DebugRender`. `HPL2_RUST_GENERATE` defaults to 1 under `#ifndef`;
+setting it to 0 compiles the untouched original bodies.
+
+`SetSize` obtains the allocation count from Rust; deletion, member assignment,
+`hplNewArray` and zeroing remain in C++. This preserves memory-manager tracking
+and allocation exceptions without an allocation callback unwinding through
+Rust. Constructors, destructors, inline properties and the `cGenerate`
+factory/lifecycle shell stay in C++; `GenerateTypes` is empty. There are no
+new third-party dependencies and no phase-2 object ownership changes.
+
+The original was audited before implementation. Preserved quirks:
+
+* Signed `x*y*z` is evaluated left-to-right before conversion to `size_t`.
+  Two negative dimensions can allocate valid positive storage; a negative
+  total still becomes the original huge C++ allocation request. Zero-volume
+  and same-size resizes still allocate and clear, preserving position/scale.
+* `SetVoxel` uses `((z*size.x)*size.y + y*size.x) + x`, without per-axis
+  bounds checks. In a 3-by-2-by-1 map, `(-1,1,0)` validly writes byte 2.
+  All 256 `char` bit patterns are preserved in the unsigned byte buffer.
+* Rendering draws only byte 1, in z/y/x order. It reloads loop bounds and
+  data after drawing callbacks, including callbacks that grow or shrink the
+  map. Position, scale and referenced color are also read live.
+* Centers keep the f32 sequence `(position + coords*voxel_size) + half_size`;
+  radius is `voxel_size/2.0f`. Negative/zero/subnormal/infinite/NaN values are
+  not clamped. `add_position` explicitly preserves the original MSVC offset
+  NaN's sign/payload; otherwise Rust debug and release can choose different
+  NaN operands. Quiet and signaling payloads are covered by the native test.
+* Drawing exceptions preserve the completed draw prefix, callback edits,
+  thrown value and propagation to the C++ caller.
+
+Deviations are confined to original undefined memory/integer operations:
+overflowing signed dimension/index intermediates and negative/out-of-buffer
+flat indices panic (abort through the engine's Rust panic hook) instead of
+overflowing or accessing unrelated memory. They are unit-tested separately.
+Allocation failures and null-renderer behavior are not changed.
+
+`tools/generate-diff/run.ps1 <repo> [<pristine-repo>]` runs natively on Windows
+x64; `run.sh` is the Linux/WSL companion. The pristine baseline is `8cd7087`,
+archived before edits into `rust/target/generate-pristine`; the runner defaults
+to that directory. Archive `HPL2/core` from that revision to recreate it.
+The real `iLowLevelGraphics` interface is mocked; no engine header or class
+layout is replaced. Array allocation/deletion events, logs, float bits,
+sphere ordering and exception results are recorded without pointer addresses.
+
+The corpus includes all 256 byte values, 324 float-edge combinations,
+2,048 maps with 32 seeded operations each, valid flat-index aliases, zero
+and two-negative dimensions, resizing and six renderer callback mutation
+cases. It excludes signed overflow, invalid flat indices, allocation-failure
+recovery and impractically large allocations/empty loops, with filters
+documented in the harness. Native comparison currently yields **196,623
+lines, 4-way identical** against pristine, switch-off, Rust release and
+Rust debug.
+
+`tools/generate-diff/mutate.ps1 <repo>` plants twelve independent arithmetic,
+ordering, byte-selection and callback-state bugs, one at a time. It restores
+source bytes and rebuilds/reruns the clean four-way matrix in `finally`.
+Run without concurrent builds or source edits; build failures and crashes do
+not count as output-mismatch detections. Logs stay in
+`rust/target/generate-diff/mutations/`.
+
+Verification for the generate slice (Rust 1.97.0, native Windows x64 MSVC):
+
+* Workspace unit tests: **78 passed** (13 generate, 33 math, 27 system,
+  5 FFI; 14 added by this slice).
+* `cargo clippy --workspace --all-targets --locked -- -D warnings`: clean.
+* Differential: **196,623 lines, 4-way identical** against `8cd7087`.
+* Mutation check: **12/12 caught, 0 equivalent mutants**, followed by
+  restored source bytes, rebuilt libraries and another clean four-way pass.
+* Full `Amnesia.sln` **Debug x64 and Release x64 passed**, including Lux
+  and all six editor/tool projects, using normal process access for MSVC.
+* Linux/WSL was not run; in particular, the explicit NaN operand selection
+  is verified against MSVC, not an assumed GCC result.
+
+There are no gameplay callers of `CreateVoxelMap`/`SetVoxel` in this checkout,
+so ordinary gameplay is only an integration smoke check. The differential
+graphics mock is the direct exercise of the new algorithm.
+
+Recommended next slice: AStar's algorithmic core, keeping graph nodes,
+visibility queries and callback objects in C++. It has a real gameplay caller
+in `LuxEnemyPathfinder`; preserve pointer-order ties, lack of relaxation for
+already-open nodes, reverse path append and early-return retained search state.
 
 ## Troubleshooting
 

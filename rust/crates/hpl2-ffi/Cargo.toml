@@ -12,6 +12,7 @@ name = "hpl2_rs"
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
+hpl-generate.workspace = true
 hpl-math.workspace = true
 hpl-system.workspace = true
 log.workspace = true

@@ -9,6 +9,7 @@
 //! `build.rs` (cbindgen) on every build.
 
 pub mod bridge;
+pub mod generate;
 pub mod geometry;
 pub mod math;
 pub mod misc;

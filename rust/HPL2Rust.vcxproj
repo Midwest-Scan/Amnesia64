@@ -106,6 +106,16 @@
     <None Include="tools\system-core-diff\run.sh" />
     <None Include="tools\system-core-diff\run.ps1" />
     <None Include="tools\system-core-diff\mutate.ps1" />
+    <None Include="crates\hpl-generate\Cargo.toml" />
+    <None Include="crates\hpl-generate\src\lib.rs" />
+    <None Include="crates\hpl-generate\src\voxel_map.rs" />
+    <None Include="crates\hpl2-ffi\src\generate.rs" />
+    <None Include="tools\generate-diff\diff_main.cpp" />
+    <None Include="tools\generate-diff\stubs.cpp" />
+    <None Include="tools\generate-diff\capture_graphics.h" />
+    <None Include="tools\generate-diff\run.sh" />
+    <None Include="tools\generate-diff\run.ps1" />
+    <None Include="tools\generate-diff\mutate.ps1" />
     <ClInclude Include="crates\hpl2-ffi\include\hpl2_rs.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
