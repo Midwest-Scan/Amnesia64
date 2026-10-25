@@ -138,6 +138,32 @@ typedef struct HplAINodeGridHost {
   bool (*push_node)(void *ctx, size_t index, void *node);
 } HplAINodeGridHost;
 
+// All callbacks are required and must not throw across Rust. Endpoint selectors
+// are int32_t (0=start, 1=goal). Null handles mean exhaustion/absence. Visibility
+// separates its result from callback success; false success saves an exception
+// for C++ to rethrow after Rust returns. Native endpoint references remain live.
+typedef struct HplAStarPathHost {
+  void *ctx;
+  float (*max_height)(void *ctx);
+  struct HplVector3f (*endpoint)(void *ctx, int32_t endpoint);
+  bool (*direct_visible)(void *ctx, bool *visible);
+  void (*clear_goal)(void *ctx);
+  bool (*reset_search)(void *ctx);
+  void (*set_goal_position)(void *ctx, struct HplVector3f goal);
+  float (*max_distance)(void *ctx);
+  bool (*begin_candidates)(void *ctx, int32_t endpoint, float radius);
+  void *(*next_candidate)(void *ctx, int32_t endpoint);
+  struct HplVector3f (*position)(void *ctx, void *node);
+  bool (*visible)(void *ctx, int32_t endpoint, void *node, bool *visible);
+  bool (*add_start)(void *ctx, void *node, float distance);
+  bool (*add_goal)(void *ctx, void *node);
+  bool (*iterate)(void *ctx);
+  void *(*goal_node)(void *ctx);
+  bool (*has_output)(void *ctx);
+  bool (*append_path)(void *ctx, void *search);
+  void *(*parent)(void *ctx, void *search);
+} HplAStarPathHost;
+
 // Every callback is required and must not throw across Rust. Null state
 // handles represent absence. Leave/enter/warning return false on a saved
 // exception; C++ rethrows only after this invocation returns.
@@ -402,6 +428,8 @@ bool hpl_ai_node_iterator_increment(struct HplVector2l position,
                                     struct HplVector2l start,
                                     struct HplVector2l end,
                                     struct HplVector2l *out);
+
+bool hpl_astar_get_path(const struct HplAStarPathHost *host);
 
 void hpl_ai_state_change(int32_t id, const struct HplAIStateTransitionHost *host);
 

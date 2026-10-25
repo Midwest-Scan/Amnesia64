@@ -10,7 +10,7 @@ moving on.
 | `HPL2/core/*/math` | **Ported** (cMath, cQuaternion, cFrustum, cBoundingVolume, cCRC) | `HPL2_RUST_MATH` |
 | `HPL2/core/*/system` | **Partly ported** (cString, cPreprocessParser, cLogicTimer, VideoComp; SHA1 in Rust only) | `HPL2_RUST_SYSTEM` |
 | `HPL2/core/*/generate` | **Algorithms ported** (cVoxelMap sizing, writes, debug traversal; C++ allocation/factory shell retained) | `HPL2_RUST_GENERATE` |
-| `HPL2/core/*/ai` | **Partly ported** (AStar core, node edge metrics, grid build/lookup, iterator stepping, Compile connection filtering/trimming, state transitions and update dispatch; ownership, physics and path setup remain C++) | `HPL2_RUST_AI` |
+| `HPL2/core/*/ai` | **Partly ported** (AStar core and path setup/output, node edge metrics, grid build/lookup, iterator stepping, Compile connection filtering/trimming, state transitions and update dispatch; ownership and physics remain C++) | `HPL2_RUST_AI` |
 | everything else | C++ | – |
 
 The Lux project lives under `amnesia/src/game/` in this checkout. Editors
@@ -52,7 +52,7 @@ rust/
     hpl-math/           Port of HPL2/core/{include,sources}/math. Pure Rust, no C ABI.
     hpl-system/         Strings, shader preprocessor, SHA1, logic timer, video mode ordering
     hpl-generate/       Voxel allocation arithmetic, flat indexing and live debug traversal
-    hpl-ai/             AStar, node/grid/connection algorithms and state transition/dispatch decisions
+    hpl-ai/             AStar search/setup/output, node/grid/connection and state transition/dispatch decisions
     hpl2-ffi/           The C ABI: builds hpl2_rs.lib and generates include/hpl2_rs.h
   tools/math-diff/      Differential test: original C++ vs. Rust, bit for bit
   tools/system-diff/    The same for cString and cPreprocessParser
@@ -62,6 +62,7 @@ rust/
   tools/ai-grid-diff/   Real AINodeContainer builds, lookup/traversal, edge bits and allocation traces
   tools/ai-compile-diff/ Real Compile/FreePath with controlled rays, live edits, trimming and exceptions
   tools/ai-state-diff/   Real StateMachine with derived callbacks, reentry, live IDs and exception traces
+  tools/astar-path-diff/ Real GetPath and navigation grid/visibility, live endpoints and output callbacks
 ```
 
 C++ side:
@@ -74,7 +75,7 @@ HPL2/core/sources/system/StringRust.cpp  cString implemented by calling Rust
 HPL2/core/sources/system/LogicTimer.cpp  per-function Rust forwards, original bodies retained
 HPL2/core/sources/system/Platform.cpp    VideoComp forwards; variadic wrappers stay C++
 HPL2/core/sources/generate/VoxelMap.cpp per-function forwards; allocation/ownership stay C++
-HPL2/core/sources/ai/AStar.cpp         four core forwards; path setup and native sets retained
+HPL2/core/sources/ai/AStar.cpp         five forwards; native sets, allocations and iterator lifetimes retained
 HPL2/core/sources/ai/AINodeContainer.cpp edge/grid/Compile forwards; ownership, lists, sorting and physics retained
 HPL2/core/sources/ai/StateMachine.cpp  transition/dispatch forwards; virtual states and scheduling retained
 ```
@@ -159,6 +160,14 @@ FFI conventions:
   vtable is mirrored. The native state scheduler receives the original f32
   time value unchanged. Initial null-current ChangeState aborts (original UB);
   null current during machine Update remains a normal no-op.
+* `HplAStarPathHost` keeps original start/goal references in its native context,
+  rather than snapshotting them at FFI entry. Endpoint selectors are int32_t:
+  0=start and 1=goal. Native iterators are constructed lazily in aligned stack
+  storage with placement new and destroyed goal-before-start; this preserves
+  lifetime without allocation or a new C++ language setting. Output callbacks
+  receive a search handle and call native `push_back(search->mpAINode)`, retaining
+  its field reference through allocation. Rust reads the parent only afterward.
+  The host shares the existing per-call exception-stop/rethrow convention.
 * All engine Rust code is exported from the single `hpl2-ffi` crate: a
   program can only link one Rust static library.
 * `panic = "abort"`; a panic is reported through `hpl::Error` first.
@@ -346,9 +355,9 @@ the minimum scan in `GetBestNode`, `Cost` and `Heuristic`. Four exports in
 `hpl2-ffi/src/ai.rs` forward these methods under `HPL2_RUST_AI`, defaulting
 to 1 under `#ifndef`. At 0 the original bodies compile unchanged.
 
-This is a bounded phase-1 slice. `GetPath` retains direct-path testing,
-candidate iterators, visibility queries, resets and path output. `AddOpenNode`
-retains allocation, membership checks and insertion; `IsGoalNode` retains
+This initial phase-1 slice retained `GetPath` in C++; its setup/output decisions
+are ported in the later AStar path slice below. `AddOpenNode` still retains
+allocation, membership checks and insertion; `IsGoalNode` retains
 native set lookup. `GetBestNode` transfers the selected node between the
 native sets. Constructors, destructors, callbacks and graph objects stay
 C++; there are no class-layout or ownership changes, new third-party
@@ -713,9 +722,118 @@ regression check. Those Lux systems do not call this HPL2 class; the public-API
 differential harness directly validates the new code. Gameplay validation remains
 for the owner.
 
-Recommended next slice: AStar path setup, retaining graph ownership and physics
-callbacks in C++. Audit the native state scheduler separately if porting it later;
-keep its callback-rescued zero/negative-step cases and live counter semantics.
+## AStar path setup and output slice
+
+`hpl-ai/src/astar_path.rs` ports `cAStarHandler::GetPath`: the direct-path decision,
+fallback sequence, start/goal candidate filtering and result-chain traversal.
+`hpl2-ffi/src/ai_path.rs` exports `hpl_astar_get_path` through the existing
+`HPL2_RUST_AI` switch. The complete original GetPath body, including its original
+comments, remains under `#else`. Removing the new branch and `<new>` include
+reconstructs the previous AStar.cpp byte-for-byte.
+
+Graph and search-node ownership, set allocation/order, native reset operations,
+AddOpenNode, visibility, native iterator lifetime and list insertion remain C++.
+The previous Rust search core still performs the search through its existing
+bridge. No new dependency, object layout, C++ language setting or phase-2
+ownership change is introduced. The lazy stack holders use C++11 alignment and
+placement new; there is no extra heap allocation on either path.
+
+The original was audited before implementation. Preserved quirks:
+
+* Height limit is captured as `maxHeight * 1.5f` at entry. Direct visibility is
+  called only when the height comparison passes. Direct success clears only
+  the goal pointer and returns true; old search sets, saved goal position and
+  caller output survive. The initially uninitialized goal pointer is not read.
+* Fallback deletes closed nodes before open nodes, clears the goal set, resets
+  the goal pointer, copies the live goal reference, then captures
+  `maxDistance * 2`. Native exception side effects remain in that order.
+* Original start/goal references stay live across visibility and allocation
+  callbacks. The start iterator is created after reset; the goal iterator only
+  after all start candidates. Both use the captured radius, but each captures
+  its own origin when constructed. Subsequent filters reread live endpoints.
+* Candidate distance uses strict `<`; height uses `<=`. Arithmetic stays f32.
+  Start insertion receives the distance computed before visibility even when
+  the callback changes positions. Height/radius limits are not refreshed during
+  either candidate pass. Both passes and search iteration still run when a
+  candidate set is empty.
+* Every visibility query retains native FreePath with ray count -1 and
+  SkipDynamic. AddOpenNode still performs native allocation/membership checks
+  and computes its cost/heuristic from the state then visible to C++.
+* A found goal is captured once. Nullable output skips traversal. Non-null
+  output appends goal-to-start without clearing its existing contents. Native
+  list insertion preserves the graph-field reference through allocation, then
+  the parent link is reread. Nested direct success during append may clear the
+  handler's live goal pointer; the outer call still returns true.
+* Failures from visibility, reset, insertion, search or output stop immediately
+  and rethrow after Rust returns, retaining partial sets/output and callback
+  changes. There is no cleanup or rollback absent from the original.
+
+**No new deviations.** Prior AStar/grid deviations remain documented above.
+Invalidated graph/search pointers, invalid grid queries, uninitialized search
+fields and cyclic parent chains remain outside the defined caller contract.
+No cycle guard or storage ownership redesign is added.
+
+`tools/astar-path-diff/run.ps1 <repo> [<pristine-repo>]` runs on native Windows
+x64; `run.sh` is its Linux companion. Baseline `e465c7d` was archived before edits
+to `rust/target/astar-path-pristine`; archive `HPL2/core` from that commit to
+recreate it. Original and current switch-off use `HPL2_RUST_AI=0`, so the archived
+reference exercises native AStar/grid bodies without linking Rust. Release and
+debug Rust outputs are compared to the same reference.
+
+The harness links production AStar.cpp and AINodeContainer.cpp, including real
+grid/iterator, FreePath and search behavior. A normally constructed world and
+concrete physics fixture supply controlled rays; unrelated dependencies use the
+same bounded stubs as the connection harness. Real physics body filtering remains
+native and is outside the ray fixture's coverage. Memory-manager observations
+expose public search-node state without private production hooks; comparisons
+include float bits, search/output order, callbacks, allocations and logs.
+
+The corpus runs 4,399 GetPath queries across 2,048 seeded graphs plus fixed cases,
+104,173 production rays, 10 controlled exceptions and 6 nested searches. It covers
+repeated searches, direct success with retained sets/output, no-start/no-goal
+cases, nullable output, strict/adjacent
+thresholds, live endpoint aliases, captured limits, pre-visibility distances,
+reset/insertion/output exceptions and nested searches. Output allocation hooks
+edit a graph-field reference or parent link while preserving stored set ordering
+and object lifetimes. A native allocation arena makes graph pointer ties
+reproducible; leftover native allocation-failure orphans are reclaimed only after
+the handler has finished and graph nodes remain alive. The allocation observer
+reads its tracking vector only during armed faults inside the test's lifetime.
+
+`tools/astar-path-diff/mutate.ps1 <repo>` plants independent realistic bugs one
+at a time, requires actual output mismatches, restores exact source bytes and
+rebuilds both Rust profiles in `finally`. Run it without concurrent Rust edits
+or builds. Logs stay under `rust/target/astar-path-diff/`.
+
+Verification for this slice (Rust 1.97.0, native Windows x64 MSVC):
+
+* Workspace unit tests: **171 passed** (74 AI, 13 generate, 33 math, 27 system,
+  24 FFI; 19 added by this slice).
+* `cargo clippy --workspace --all-targets --locked -- -D warnings`: clean.
+* Path differential: **276,006 lines, 4-way identical** against `e465c7d`.
+* Earlier AStar search-core regression: **294,345 lines, 4-way identical**.
+* Mutation check: **12/12 caught, 0 equivalent mutants**, all actual output
+  mismatches. An initial double-precision distance mutant exposed a coverage
+  gap; an adjacent-float boundary case closed it, then all twelve mutations
+  were rerun. Exact source bytes were restored, both Rust libraries rebuilt,
+  and the clean four-way comparison passed again.
+* Full `Amnesia.sln` **Debug x64 and Release x64 passed**, including Lux and
+  all six editor/tool projects, using normal process access for MSVC.
+* Linux/WSL was not run. The Linux runner is supplied without claiming a pass.
+  Unit tests/Clippy used process-only `CARGO_INCREMENTAL=0`; no build settings
+  or toolchain pin changed. Source and project line endings were preserved;
+  the generated header was restored to CRLF after the final builds.
+
+Reload the Rust project in Visual Studio (or restart VS), then build Debug and
+Release x64. Load an enemy map and draw an enemy around corners or obstacles,
+then return to clear line of sight. Repeat after loading a save to exercise
+successive graph and direct paths. `cLuxEnemyPathfinder::MoveTo` calls this API;
+cached navigation data is sufficient, without rebuilding node connections.
+Gameplay validation remains for the owner.
+
+Recommended next slice: audit AINodeGenerator's placement logic, keeping physics
+queries and world ownership native. The native state scheduler is also a later
+candidate, with its callback-rescued steps and live counter semantics preserved.
 
 ## Troubleshooting
 

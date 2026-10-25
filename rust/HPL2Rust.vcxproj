@@ -146,6 +146,13 @@
     <None Include="tools\ai-state-diff\run.ps1" />
     <None Include="tools\ai-state-diff\run.sh" />
     <None Include="tools\ai-state-diff\mutate.ps1" />
+    <None Include="crates\hpl-ai\src\astar_path.rs" />
+    <None Include="crates\hpl2-ffi\src\ai_path.rs" />
+    <None Include="tools\astar-path-diff\diff_main.cpp" />
+    <None Include="tools\astar-path-diff\stubs.cpp" />
+    <None Include="tools\astar-path-diff\run.ps1" />
+    <None Include="tools\astar-path-diff\run.sh" />
+    <None Include="tools\astar-path-diff\mutate.ps1" />
     <ClInclude Include="crates\hpl2-ffi\include\hpl2_rs.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

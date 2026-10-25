@@ -28,6 +28,7 @@
 
 #if HPL2_RUST_AI
 #include <exception>
+#include <new>
 #endif
 
 
@@ -88,6 +89,151 @@ namespace hpl {
 
 	bool cAStarHandler::GetPath(const cVector3f& avStart, const cVector3f& avGoal,tAINodeList *apNodeList)
 	{
+#if HPL2_RUST_AI
+		// Lazy stack storage preserves native iterator lifetime without allocating
+		// or requiring a newer C++ language standard than the existing projects.
+		struct cPathIterator
+		{
+			alignas(cAINodeIterator) unsigned char mvStorage[sizeof(cAINodeIterator)];
+			cAINodeIterator *mpIterator;
+			cPathIterator() : mpIterator(NULL) {}
+			~cPathIterator() { if(mpIterator) mpIterator->~cAINodeIterator(); }
+			void Create(cAINodeContainer *apContainer, const cVector3f &avPosition, float afRadius)
+			{
+				mpIterator = new(static_cast<void*>(mvStorage)) cAINodeIterator(apContainer->GetNodeIterator(avPosition,afRadius));
+			}
+		};
+		struct cPathContext
+		{
+			cAStarHandler *mpHandler;
+			const cVector3f *mpStart;
+			const cVector3f *mpGoal;
+			tAINodeList *mpOutput;
+			cPathIterator mStartIterator;
+			cPathIterator mGoalIterator;
+			std::exception_ptr mException;
+		};
+		cPathContext context;
+		context.mpHandler = this;
+		context.mpStart = &avStart;
+		context.mpGoal = &avGoal;
+		context.mpOutput = apNodeList;
+		// Do not read the handler's uninitialized goal pointer on a first call.
+		HplAStarPathHost host = {
+			&context,
+			[](void *apCtx) -> float {
+				return static_cast<cPathContext*>(apCtx)->mpHandler->mpContainer->GetMaxHeight();
+			},
+			[](void *apCtx, int32_t alEndpoint) -> HplVector3f {
+				cPathContext *pCtx = static_cast<cPathContext*>(apCtx);
+				return ToRs(alEndpoint == 0 ? *pCtx->mpStart : *pCtx->mpGoal);
+			},
+			[](void *apCtx, bool *apVisible) -> bool {
+				cPathContext *pCtx = static_cast<cPathContext*>(apCtx);
+				try
+				{
+					*apVisible = pCtx->mpHandler->mpContainer->FreePath(*pCtx->mpStart,*pCtx->mpGoal,-1,eAIFreePathFlag_SkipDynamic);
+					return true;
+				}
+				catch(...) { pCtx->mException = std::current_exception(); return false; }
+			},
+			[](void *apCtx) {
+				static_cast<cPathContext*>(apCtx)->mpHandler->mpGoalNode = NULL;
+			},
+			[](void *apCtx) -> bool {
+				cPathContext *pCtx = static_cast<cPathContext*>(apCtx);
+				try
+				{
+					cAStarHandler *pHandler = pCtx->mpHandler;
+					STLDeleteAll(pHandler->m_setClosedList);
+					STLDeleteAll(pHandler->m_setOpenList);
+					pHandler->m_setGoalNodes.clear();
+					pHandler->mpGoalNode = NULL;
+					return true;
+				}
+				catch(...) { pCtx->mException = std::current_exception(); return false; }
+			},
+			[](void *apCtx, HplVector3f avPosition) {
+				static_cast<cPathContext*>(apCtx)->mpHandler->mvGoal = FromRs(avPosition);
+			},
+			[](void *apCtx) -> float {
+				return static_cast<cPathContext*>(apCtx)->mpHandler->mpContainer->GetMaxEdgeDistance();
+			},
+			[](void *apCtx, int32_t alEndpoint, float afRadius) -> bool {
+				cPathContext *pCtx = static_cast<cPathContext*>(apCtx);
+				try
+				{
+					cPathIterator &iterator = alEndpoint == 0 ? pCtx->mStartIterator : pCtx->mGoalIterator;
+					iterator.Create(pCtx->mpHandler->mpContainer,alEndpoint == 0 ? *pCtx->mpStart : *pCtx->mpGoal,afRadius);
+					return true;
+				}
+				catch(...) { pCtx->mException = std::current_exception(); return false; }
+			},
+			[](void *apCtx, int32_t alEndpoint) -> void* {
+				cPathContext *pCtx = static_cast<cPathContext*>(apCtx);
+				cAINodeIterator *pIterator = alEndpoint == 0 ? pCtx->mStartIterator.mpIterator : pCtx->mGoalIterator.mpIterator;
+				return pIterator->HasNext() ? pIterator->Next() : NULL;
+			},
+			[](void *, void *apNode) -> HplVector3f {
+				return ToRs(static_cast<cAINode*>(apNode)->GetPosition());
+			},
+			[](void *apCtx, int32_t alEndpoint, void *apNode, bool *apVisible) -> bool {
+				cPathContext *pCtx = static_cast<cPathContext*>(apCtx);
+				try
+				{
+					*apVisible = pCtx->mpHandler->mpContainer->FreePath(alEndpoint == 0 ? *pCtx->mpStart : *pCtx->mpGoal,
+						static_cast<cAINode*>(apNode)->GetPosition(),-1,eAIFreePathFlag_SkipDynamic);
+					return true;
+				}
+				catch(...) { pCtx->mException = std::current_exception(); return false; }
+			},
+			[](void *apCtx, void *apNode, float afDistance) -> bool {
+				cPathContext *pCtx = static_cast<cPathContext*>(apCtx);
+				try
+				{
+					pCtx->mpHandler->AddOpenNode(static_cast<cAINode*>(apNode),NULL,afDistance);
+					return true;
+				}
+				catch(...) { pCtx->mException = std::current_exception(); return false; }
+			},
+			[](void *apCtx, void *apNode) -> bool {
+				cPathContext *pCtx = static_cast<cPathContext*>(apCtx);
+				try
+				{
+					pCtx->mpHandler->m_setGoalNodes.insert(static_cast<cAINode*>(apNode));
+					return true;
+				}
+				catch(...) { pCtx->mException = std::current_exception(); return false; }
+			},
+			[](void *apCtx) -> bool {
+				cPathContext *pCtx = static_cast<cPathContext*>(apCtx);
+				try { pCtx->mpHandler->IterateAlgorithm(); return true; }
+				catch(...) { pCtx->mException = std::current_exception(); return false; }
+			},
+			[](void *apCtx) -> void* {
+				return static_cast<cPathContext*>(apCtx)->mpHandler->mpGoalNode;
+			},
+			[](void *apCtx) -> bool {
+				return static_cast<cPathContext*>(apCtx)->mpOutput != NULL;
+			},
+			[](void *apCtx, void *apSearch) -> bool {
+				cPathContext *pCtx = static_cast<cPathContext*>(apCtx);
+				try
+				{
+					// Preserve the field reference through allocation inside push_back.
+					pCtx->mpOutput->push_back(static_cast<cAStarNode*>(apSearch)->mpAINode);
+					return true;
+				}
+				catch(...) { pCtx->mException = std::current_exception(); return false; }
+			},
+			[](void *, void *apSearch) -> void* {
+				return static_cast<cAStarNode*>(apSearch)->mpParent;
+			}
+		};
+		bool bResult = hpl_astar_get_path(&host);
+		if(context.mException) std::rethrow_exception(context.mException);
+		return bResult;
+#else
 		float fMaxHeight = mpContainer->GetMaxHeight()*1.5f;
 
 		/////////////////////////////////////////////////
@@ -216,6 +362,7 @@ namespace hpl {
 		{
 			 return false;
 		}
+#endif
 	}
 
 	//-----------------------------------------------------------------------

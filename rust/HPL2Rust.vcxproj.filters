@@ -43,6 +43,9 @@
     <Filter Include="tools\ai-state-diff">
       <UniqueIdentifier>{39456f1f-a1fa-48f2-a889-524fba294a60}</UniqueIdentifier>
     </Filter>
+    <Filter Include="tools\astar-path-diff">
+      <UniqueIdentifier>{e1151bec-214e-43b7-b0fa-ecc9f2c6bb6e}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <None Include="build.cmd" />
@@ -331,6 +334,27 @@
     </None>
     <None Include="tools\ai-state-diff\mutate.ps1">
       <Filter>tools\ai-state-diff</Filter>
+    </None>
+    <None Include="crates\hpl-ai\src\astar_path.rs">
+      <Filter>crates\hpl-ai</Filter>
+    </None>
+    <None Include="crates\hpl2-ffi\src\ai_path.rs">
+      <Filter>crates\hpl2-ffi</Filter>
+    </None>
+    <None Include="tools\astar-path-diff\diff_main.cpp">
+      <Filter>tools\astar-path-diff</Filter>
+    </None>
+    <None Include="tools\astar-path-diff\stubs.cpp">
+      <Filter>tools\astar-path-diff</Filter>
+    </None>
+    <None Include="tools\astar-path-diff\run.ps1">
+      <Filter>tools\astar-path-diff</Filter>
+    </None>
+    <None Include="tools\astar-path-diff\run.sh">
+      <Filter>tools\astar-path-diff</Filter>
+    </None>
+    <None Include="tools\astar-path-diff\mutate.ps1">
+      <Filter>tools\astar-path-diff</Filter>
     </None>
     <ClInclude Include="crates\hpl2-ffi\include\hpl2_rs.h">
       <Filter>crates\hpl2-ffi</Filter>

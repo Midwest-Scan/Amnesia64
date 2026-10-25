@@ -7,8 +7,8 @@
 //! - Edge count is captured before callbacks, but edge contents, parent
 //!   distance, the callback pointer and iteration limit remain live.
 //! - GetPath's direct-path fast return preserves old sets and the caller's
-//!   list; successful graph paths append goal-to-start. That setup/output,
-//!   allocation and set ownership remain in C++.
+//!   list; successful graph paths append goal-to-start. Setup/output decisions
+//!   now live in astar_path; allocation and set ownership remain in C++.
 //! - Empty GetBestNode, invalidated edge/parent pointers, reading a newly
 //!   allocated node's uninitialized costs, and signed iteration overflow
 //!   are undefined in C++. The first and last abort at the bridge/increment;
