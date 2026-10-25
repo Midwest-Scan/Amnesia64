@@ -8,6 +8,7 @@
 //! The C header `include/hpl2_rs.h` is generated from these declarations by
 //! `build.rs` (cbindgen) on every build.
 
+pub mod ai;
 pub mod bridge;
 pub mod generate;
 pub mod geometry;

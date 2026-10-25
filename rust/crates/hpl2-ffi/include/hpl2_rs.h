@@ -43,6 +43,44 @@ typedef wchar_t HplWChar;
 
 #define HPL_COLLISION_INTERSECT 2
 
+// Live access to C++ AStar state. Handles are opaque: Rust never dereferences
+// or borrows engine storage across a callback, including a nested GetPath.
+// Every callback is required and must return normally (never throw).
+typedef struct HplAStarSearchHost {
+  void *ctx;
+  bool (*open_empty)(void *ctx);
+  int32_t (*max_iterations)(void *ctx);
+  // Null requests return to C++ to rethrow a saved exception.
+  void *(*best_node)(void *ctx);
+  void *(*graph_node)(void *ctx, void *search);
+  bool (*is_goal)(void *ctx, void *node);
+  void (*set_goal)(void *ctx, void *search);
+  int32_t (*edge_count)(void *ctx, void *node);
+  void *(*edge)(void *ctx, void *node, int32_t index);
+  void *(*edge_node)(void *ctx, void *edge);
+  // Success is separate from permission: false stops to rethrow, while
+  // true with *allowed=false only skips this edge. Write after user code.
+  bool (*can_add)(void *ctx, void *parent, void *child, bool *allowed);
+  float (*edge_distance)(void *ctx, void *edge);
+  float (*search_distance)(void *ctx, void *search);
+  // False requests immediate return to C++ to rethrow a saved exception.
+  bool (*add_open)(void *ctx, void *node, void *parent, float distance);
+} HplAStarSearchHost;
+
+// Traverses the native open set in its comparator order, without allocation.
+typedef struct HplAStarOpenHost {
+  void *ctx;
+  // Return the next opaque search node and write its cost. Null ends input.
+  void *(*next)(void *ctx, float *cost);
+} HplAStarOpenHost;
+
+// `cVector3f`
+typedef struct HplVector3f {
+  float x;
+  float y;
+  float z;
+} HplVector3f;
+
 // Receives one log line (UTF-8, no trailing newline). Must be thread safe.
 typedef void (*HplLogCallback)(int32_t level, const char *message);
 
@@ -52,13 +90,6 @@ typedef struct HplVector3l {
   int32_t y;
   int32_t z;
 } HplVector3l;
-
-// `cVector3f`
-typedef struct HplVector3f {
-  float x;
-  float y;
-  float z;
-} HplVector3f;
 
 // Reentrant access to a live C++ voxel map. All callbacks are required.
 // No buffer borrow is retained across draw_sphere, which may resize the map.
@@ -271,6 +302,16 @@ typedef struct HplLogicTimerState {
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
+
+void hpl_astar_iterate_algorithm(const struct HplAStarSearchHost *host);
+
+// Select from a nonempty native open set. The C++ wrapper then transfers the
+// result to its closed set, retaining C++ allocation/exception semantics.
+void *hpl_astar_get_best_node(const struct HplAStarOpenHost *host);
+
+float hpl_astar_cost(float distance, float node_y, bool has_parent, float parent_y);
+
+float hpl_astar_heuristic(struct HplVector3f start, struct HplVector3f goal);
 
 // Initialise the Rust side of the engine. Call once at startup, before any
 // other `hpl_*` function if logging is wanted. Safe to call again to

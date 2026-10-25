@@ -28,6 +28,12 @@
     <Filter Include="tools\generate-diff">
       <UniqueIdentifier>{00c60ecb-eaab-494b-9f08-1572e44ed594}</UniqueIdentifier>
     </Filter>
+    <Filter Include="crates\hpl-ai">
+      <UniqueIdentifier>{311f7602-a92d-4c8d-87e2-6afea4394055}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="tools\astar-diff">
+      <UniqueIdentifier>{f8fd1bce-4c80-4395-97dc-e6112978a247}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <None Include="build.cmd" />
@@ -226,6 +232,33 @@
     </None>
     <None Include="tools\generate-diff\mutate.ps1">
       <Filter>tools\generate-diff</Filter>
+    </None>
+    <None Include="crates\hpl-ai\Cargo.toml">
+      <Filter>crates\hpl-ai</Filter>
+    </None>
+    <None Include="crates\hpl-ai\src\lib.rs">
+      <Filter>crates\hpl-ai</Filter>
+    </None>
+    <None Include="crates\hpl-ai\src\astar.rs">
+      <Filter>crates\hpl-ai</Filter>
+    </None>
+    <None Include="crates\hpl2-ffi\src\ai.rs">
+      <Filter>crates\hpl2-ffi</Filter>
+    </None>
+    <None Include="tools\astar-diff\diff_main.cpp">
+      <Filter>tools\astar-diff</Filter>
+    </None>
+    <None Include="tools\astar-diff\stubs.cpp">
+      <Filter>tools\astar-diff</Filter>
+    </None>
+    <None Include="tools\astar-diff\run.ps1">
+      <Filter>tools\astar-diff</Filter>
+    </None>
+    <None Include="tools\astar-diff\run.sh">
+      <Filter>tools\astar-diff</Filter>
+    </None>
+    <None Include="tools\astar-diff\mutate.ps1">
+      <Filter>tools\astar-diff</Filter>
     </None>
     <ClInclude Include="crates\hpl2-ffi\include\hpl2_rs.h">
       <Filter>crates\hpl2-ffi</Filter>

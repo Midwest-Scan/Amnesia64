@@ -24,6 +24,11 @@
 #include "math/Math.h"
 
 #include "system/LowLevelSystem.h"
+#include "system/RustBridge.h"
+
+#if HPL2_RUST_AI
+#include <exception>
+#endif
 
 
 namespace hpl {
@@ -223,6 +228,77 @@ namespace hpl {
 
 	void cAStarHandler::IterateAlgorithm()
 	{
+#if HPL2_RUST_AI
+		struct cSearchContext
+		{
+			cAStarHandler *mpHandler;
+			std::exception_ptr mException;
+		};
+		cSearchContext context = { this, std::exception_ptr() };
+		// Keep raw handles and live reads: callbacks can edit edges, limits,
+		// callbacks and search state. Each nested call owns its exception slot.
+		HplAStarSearchHost host = {
+			&context,
+			[](void *apCtx) -> bool {
+				return static_cast<cSearchContext*>(apCtx)->mpHandler->m_setOpenList.empty();
+			},
+			[](void *apCtx) -> int32_t {
+				return static_cast<cSearchContext*>(apCtx)->mpHandler->mlMaxIterations;
+			},
+			[](void *apCtx) -> void* {
+				cSearchContext *pCtx = static_cast<cSearchContext*>(apCtx);
+				try { return pCtx->mpHandler->GetBestNode(); }
+				catch(...) { pCtx->mException = std::current_exception(); return NULL; }
+			},
+			[](void *, void *apSearch) -> void* {
+				return static_cast<cAStarNode*>(apSearch)->mpAINode;
+			},
+			[](void *apCtx, void *apNode) -> bool {
+				return static_cast<cSearchContext*>(apCtx)->mpHandler->IsGoalNode(static_cast<cAINode*>(apNode));
+			},
+			[](void *apCtx, void *apSearch) {
+				static_cast<cSearchContext*>(apCtx)->mpHandler->mpGoalNode = static_cast<cAStarNode*>(apSearch);
+			},
+			[](void *, void *apNode) -> int32_t {
+				return static_cast<cAINode*>(apNode)->GetEdgeNum();
+			},
+			[](void *, void *apNode, int32_t alIndex) -> void* {
+				return static_cast<cAINode*>(apNode)->GetEdge(alIndex);
+			},
+			[](void *, void *apEdge) -> void* {
+				return static_cast<cAINodeEdge*>(apEdge)->mpNode;
+			},
+			[](void *apCtx, void *apParent, void *apChild, bool *apAllowed) -> bool {
+				cSearchContext *pCtx = static_cast<cSearchContext*>(apCtx);
+				try
+				{
+					cAStarHandler *pHandler = pCtx->mpHandler;
+					bool bAllowed = pHandler->mpCallback == NULL ||
+						pHandler->mpCallback->CanAddNode(static_cast<cAINode*>(apParent), static_cast<cAINode*>(apChild));
+					if(apAllowed) *apAllowed = bAllowed;
+					return true;
+				}
+				catch(...) { pCtx->mException = std::current_exception(); return false; }
+			},
+			[](void *, void *apEdge) -> float {
+				return static_cast<cAINodeEdge*>(apEdge)->mfDistance;
+			},
+			[](void *, void *apSearch) -> float {
+				return static_cast<cAStarNode*>(apSearch)->mfDistance;
+			},
+			[](void *apCtx, void *apNode, void *apParent, float afDistance) -> bool {
+				cSearchContext *pCtx = static_cast<cSearchContext*>(apCtx);
+				try
+				{
+					pCtx->mpHandler->AddOpenNode(static_cast<cAINode*>(apNode), static_cast<cAStarNode*>(apParent), afDistance);
+					return true;
+				}
+				catch(...) { pCtx->mException = std::current_exception(); return false; }
+			}
+		};
+		hpl_astar_iterate_algorithm(&host);
+		if(context.mException) std::rethrow_exception(context.mException);
+#else
 		int lIterationCount=0;
 		while(m_setOpenList.empty()==false && (mlMaxIterations <0 || lIterationCount < mlMaxIterations))
 		{
@@ -253,6 +329,7 @@ namespace hpl {
 
 			++lIterationCount;
 		}
+#endif
 	}
 
 
@@ -288,6 +365,30 @@ namespace hpl {
 
 	cAStarNode* cAStarHandler::GetBestNode()
 	{
+#if HPL2_RUST_AI
+		struct cOpenContext
+		{
+			tAStarNodeSetIt mNext;
+			tAStarNodeSetIt mEnd;
+		};
+		cOpenContext context = { m_setOpenList.begin(), m_setOpenList.end() };
+		HplAStarOpenHost host = {
+			&context,
+			[](void *apCtx, float *apCost) -> void* {
+				cOpenContext *pCtx = static_cast<cOpenContext*>(apCtx);
+				if(pCtx->mNext == pCtx->mEnd) return NULL;
+				cAStarNode *pNode = *pCtx->mNext++;
+				if(apCost) *apCost = pNode->mfCost;
+				return pNode;
+			}
+		};
+		cAStarNode *pBestNode = static_cast<cAStarNode*>(hpl_astar_get_best_node(&host));
+		// Faithful: native pointer ordering, and erase before the potentially
+		// throwing closed-set insertion. Allocation exceptions never cross Rust frames.
+		m_setOpenList.erase(m_setOpenList.find(pBestNode));
+		m_setClosedList.insert(pBestNode);
+		return pBestNode;
+#else
 		tAStarNodeSetIt it = m_setOpenList.begin();
 		tAStarNodeSetIt bestIt = it;
 		cAStarNode* pBestNode = *it; ++it;
@@ -310,12 +411,19 @@ namespace hpl {
 		m_setClosedList.insert(pBestNode);
 
 		return pBestNode;
+#endif
 	}
 
 	//-----------------------------------------------------------------------
 	
 	float cAStarHandler::Cost(float afDistance, cAINode *apAINode, cAStarNode *apParent)
 	{
+#if HPL2_RUST_AI
+		// Faithful: a root cost does not read either node's position.
+		if(apParent)
+			return hpl_astar_cost(afDistance, apAINode->GetPosition().y, true, apParent->mpAINode->GetPosition().y);
+		return hpl_astar_cost(afDistance, 0.0f, false, 0.0f);
+#else
 		if(apParent)
 		{
 			float fHeight = (1+fabs(apAINode->GetPosition().y - apParent->mpAINode->GetPosition().y));
@@ -323,14 +431,19 @@ namespace hpl {
 		}
 		else
 			return afDistance;
+#endif
 	}
 
 	//-----------------------------------------------------------------------
 
 	float cAStarHandler::Heuristic(const cVector3f& avStart, const cVector3f& avGoal)
 	{
+#if HPL2_RUST_AI
+		return hpl_astar_heuristic(ToRs(avStart), ToRs(avGoal));
+#else
 		//return cMath::Vector3DistSqr(avStart, avGoal);
 		return cMath::Vector3Dist(avStart, avGoal);
+#endif
 	}
 
 	//-----------------------------------------------------------------------

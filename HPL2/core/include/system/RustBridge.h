@@ -42,6 +42,11 @@
 #define HPL2_RUST_GENERATE 1
 #endif
 
+// cAStarHandler search core (graph, sets and path setup stay in C++)
+#ifndef HPL2_RUST_AI
+#define HPL2_RUST_AI 1
+#endif
+
 #include <cstddef>
 #include <cstring>
 

@@ -1,0 +1,11 @@
+[package]
+name = "hpl-ai"
+version = "0.1.0"
+description = "Rust port of the HPL2 AI search algorithms"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+hpl-math.workspace = true
