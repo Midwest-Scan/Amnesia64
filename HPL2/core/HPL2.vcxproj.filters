@@ -1095,6 +1095,9 @@
     <ClCompile Include="sources\system\String.cpp">
       <Filter>System</Filter>
     </ClCompile>
+    <ClCompile Include="sources\system\StringRust.cpp">
+      <Filter>System</Filter>
+    </ClCompile>
     <ClCompile Include="sources\system\RustBridge.cpp">
       <Filter>System</Filter>
     </ClCompile>

@@ -89,7 +89,15 @@
     <None Include="crates\hpl2-ffi\src\lib.rs" />
     <None Include="crates\hpl2-ffi\src\math.rs" />
     <None Include="crates\hpl2-ffi\src\misc.rs" />
+    <None Include="crates\hpl2-ffi\src\system.rs" />
     <None Include="crates\hpl2-ffi\src\types.rs" />
+    <None Include="crates\hpl-system\Cargo.toml" />
+    <None Include="crates\hpl-system\src\chars.rs" />
+    <None Include="crates\hpl-system\src\crt.rs" />
+    <None Include="crates\hpl-system\src\lib.rs" />
+    <None Include="crates\hpl-system\src\preprocess.rs" />
+    <None Include="crates\hpl-system\src\sha1.rs" />
+    <None Include="crates\hpl-system\src\string.rs" />
     <ClInclude Include="crates\hpl2-ffi\include\hpl2_rs.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

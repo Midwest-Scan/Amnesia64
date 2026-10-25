@@ -509,6 +509,7 @@
     <ClCompile Include="sources\system\SerializeClass.cpp" />
     <ClCompile Include="sources\system\SHA1.cpp" />
     <ClCompile Include="sources\system\String.cpp" />
+    <ClCompile Include="sources\system\StringRust.cpp" />
     <ClCompile Include="sources\system\RustBridge.cpp" />
     <ClCompile Include="sources\system\System.cpp" />
     <ClCompile Include="sources\system\Thread.cpp" />

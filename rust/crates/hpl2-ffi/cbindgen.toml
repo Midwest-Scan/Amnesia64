@@ -16,6 +16,11 @@ header = """/*
  */"""
 no_includes = true
 sys_includes = ["stdbool.h", "stddef.h", "stdint.h"]
+# HplWChar is u16 or u32 in Rust depending on the platform; in C it is
+# simply the platform's wchar_t.
+after_includes = """
+typedef wchar_t HplWChar;
+"""
 usize_is_size_t = true
 style = "both"
 documentation = true
@@ -23,6 +28,7 @@ documentation_style = "c99"
 
 [export]
 include = ["HplBvExtents", "HplFrustumView", "HplFrustumProjection"]
+exclude = ["HplWChar"]
 
 [fn]
 args = "auto"

@@ -32,11 +32,17 @@
 #define HPL2_RUST_MATH 1
 #endif
 
+// cString, cPreprocessParser
+#ifndef HPL2_RUST_SYSTEM
+#define HPL2_RUST_SYSTEM 1
+#endif
+
 #include <cstddef>
 #include <cstring>
 
 #include "hpl2_rs.h"
 
+#include "system/SystemTypes.h"
 #include "math/MathTypes.h"
 #include "math/MeshTypes.h"
 #include "graphics/Color.h"
@@ -59,7 +65,8 @@ namespace hpl {
 	//------------------------------------------
 
 	/**
-	 * Connects Rust logging and panic reports to Log/Warning/Error.
+	 * Connects Rust logging and panic reports to Log/Warning/Error, and
+	 * checks that both sides agree on the size of wchar_t.
 	 * Called by cEngine's constructor; safe to call more than once.
 	 */
 	void RustBridge_Init();
@@ -71,6 +78,7 @@ namespace hpl {
 	static_assert(sizeof(cVector2f) == sizeof(HplVector2f), "cVector2f layout");
 	static_assert(sizeof(cVector2l) == sizeof(HplVector2l), "cVector2l layout");
 	static_assert(sizeof(cVector3f) == sizeof(HplVector3f), "cVector3f layout");
+	static_assert(sizeof(cVector3l) == sizeof(HplVector3l), "cVector3l layout");
 	static_assert(sizeof(cMatrixf) == sizeof(HplMatrixf), "cMatrixf layout");
 	static_assert(sizeof(cQuaternion) == sizeof(HplQuaternion), "cQuaternion layout");
 	static_assert(offsetof(cQuaternion, w) == offsetof(HplQuaternion, w), "cQuaternion layout");
@@ -91,6 +99,7 @@ namespace hpl {
 	inline HplVector2f ToRs(const cVector2f& v) { HplVector2f r = { v.x, v.y }; return r; }
 	inline HplVector2l ToRs(const cVector2l& v) { HplVector2l r = { v.x, v.y }; return r; }
 	inline HplVector3f ToRs(const cVector3f& v) { HplVector3f r = { v.x, v.y, v.z }; return r; }
+	inline HplVector3l ToRs(const cVector3l& v) { HplVector3l r = { v.x, v.y, v.z }; return r; }
 	inline HplColor ToRs(const cColor& c) { HplColor r = { c.r, c.g, c.b, c.a }; return r; }
 	inline HplPlanef ToRs(const cPlanef& p) { HplPlanef r = { p.a, p.b, p.c, p.d }; return r; }
 	inline HplRect2f ToRs(const cRect2f& a) { HplRect2f r = { a.x, a.y, a.w, a.h }; return r; }
@@ -101,6 +110,7 @@ namespace hpl {
 	inline cVector2f FromRs(const HplVector2f& v) { return cVector2f(v.x, v.y); }
 	inline cVector2l FromRs(const HplVector2l& v) { return cVector2l(v.x, v.y); }
 	inline cVector3f FromRs(const HplVector3f& v) { return cVector3f(v.x, v.y, v.z); }
+	inline cVector3l FromRs(const HplVector3l& v) { return cVector3l(v.x, v.y, v.z); }
 	inline cColor FromRs(const HplColor& c) { return cColor(c.r, c.g, c.b, c.a); }
 	inline cPlanef FromRs(const HplPlanef& p) { return cPlanef(p.a, p.b, p.c, p.d); }
 	inline cRect2f FromRs(const HplRect2f& a) { return cRect2f(a.x, a.y, a.w, a.h); }
@@ -127,6 +137,40 @@ namespace hpl {
 	 * byte and normalises it.
 	 */
 	inline bool RsBool(const bool& b) { unsigned char c; memcpy(&c, &b, 1); return c != 0; }
+
+	//------------------------------------------
+	// Strings. Inputs are passed as views (pointer + length), outputs come
+	// back through a sink: a callback that assigns, appends or pushes the
+	// data into a C++ container. E.g.
+	//   tString sOut; hpl_string_get_file_name(RsStr(sIn), RsAssign(sOut));
+
+	inline HplStr RsStr(const tString& s) { HplStr r = { reinterpret_cast<const uint8_t*>(s.data()), s.size() }; return r; }
+	inline HplWStr RsStr(const tWString& s) { HplWStr r = { s.data(), s.size() }; return r; }
+
+	/** A C string; NULL gives a null view. */
+	inline HplStr RsCStr(const char* s) { HplStr r = { reinterpret_cast<const uint8_t*>(s), s ? strlen(s) : 0 }; return r; }
+
+	/** An optional string; NULL gives a null view. */
+	inline HplStr RsStrPtr(const tString* s) { if(s) return RsStr(*s); HplStr r = { NULL, 0 }; return r; }
+	inline HplWStr RsStrPtr(const tWString* s) { if(s) return RsStr(*s); HplWStr r = { NULL, 0 }; return r; }
+
+	inline void RsSinkAssign(void* ctx, const uint8_t* d, size_t n) { static_cast<tString*>(ctx)->assign(reinterpret_cast<const char*>(d), n); }
+	inline void RsSinkAppend(void* ctx, const uint8_t* d, size_t n) { static_cast<tString*>(ctx)->append(reinterpret_cast<const char*>(d), n); }
+	inline void RsSinkPush(void* ctx, const uint8_t* d, size_t n) { static_cast<tStringVec*>(ctx)->push_back(tString(reinterpret_cast<const char*>(d), n)); }
+	inline void RsSinkAssignW(void* ctx, const HplWChar* d, size_t n) { static_cast<tWString*>(ctx)->assign(d, n); }
+	inline void RsSinkPushW(void* ctx, const HplWChar* d, size_t n) { static_cast<tWStringVec*>(ctx)->push_back(tWString(d, n)); }
+	inline void RsSinkAppendInts(void* ctx, const int32_t* d, size_t n) { tIntVec* v = static_cast<tIntVec*>(ctx); v->insert(v->end(), d, d + n); }
+	inline void RsSinkAppendUInts(void* ctx, const int32_t* d, size_t n) { tUIntVec* v = static_cast<tUIntVec*>(ctx); for(size_t i=0; i<n; ++i) v->push_back((unsigned int)d[i]); }
+	inline void RsSinkAppendFloats(void* ctx, const float* d, size_t n) { tFloatVec* v = static_cast<tFloatVec*>(ctx); v->insert(v->end(), d, d + n); }
+
+	inline HplStrOut RsAssign(tString& s) { HplStrOut o = { &RsSinkAssign, &s }; return o; }
+	inline HplStrOut RsAppend(tString& s) { HplStrOut o = { &RsSinkAppend, &s }; return o; }
+	inline HplStrOut RsPush(tStringVec& v) { HplStrOut o = { &RsSinkPush, &v }; return o; }
+	inline HplWStrOut RsAssign(tWString& s) { HplWStrOut o = { &RsSinkAssignW, &s }; return o; }
+	inline HplWStrOut RsPush(tWStringVec& v) { HplWStrOut o = { &RsSinkPushW, &v }; return o; }
+	inline HplI32Out RsAppend(tIntVec& v) { HplI32Out o = { &RsSinkAppendInts, &v }; return o; }
+	inline HplI32Out RsAppend(tUIntVec& v) { HplI32Out o = { &RsSinkAppendUInts, &v }; return o; }
+	inline HplF32Out RsAppend(tFloatVec& v) { HplF32Out o = { &RsSinkAppendFloats, &v }; return o; }
 
 	//------------------------------------------
 

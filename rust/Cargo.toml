@@ -10,6 +10,7 @@ publish = false
 
 [workspace.dependencies]
 hpl-math = { path = "crates/hpl-math" }
+hpl-system = { path = "crates/hpl-system" }
 log = "0.4"
 
 # The engine is linked into a C++ executable, so unwinding across the FFI

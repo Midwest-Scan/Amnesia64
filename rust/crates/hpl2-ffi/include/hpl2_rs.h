@@ -19,6 +19,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+typedef wchar_t HplWChar;
+
 
 // Log levels passed to [`HplLogCallback`].
 #define HPL_LOG_LEVEL_ERROR 0
@@ -165,6 +167,76 @@ typedef struct HplTriEdge {
 // Receives the result of [`hpl_math_create_edges`] (called exactly once).
 typedef void (*HplEdgeSink)(void *context, const struct HplTriEdge *edges, size_t count);
 
+// A narrow string (`tString` / `const char*`) by pointer and length.
+// A null `ptr` stands for a null `const char*` where the C++ accepts one.
+typedef struct HplStr {
+  const uint8_t *ptr;
+  size_t len;
+} HplStr;
+
+// Receives wide text.
+typedef void (*HplWStrSink)(void *ctx, const HplWChar *data, size_t len);
+
+// Receives wide text: a sink and its context.
+typedef struct HplWStrOut {
+  HplWStrSink sink;
+  void *ctx;
+} HplWStrOut;
+
+// A wide string (`tWString`) by pointer and length.
+typedef struct HplWStr {
+  const HplWChar *ptr;
+  size_t len;
+} HplWStr;
+
+// Receives narrow text.
+typedef void (*HplStrSink)(void *ctx, const uint8_t *data, size_t len);
+
+// Receives narrow text: a sink and its context.
+typedef struct HplStrOut {
+  HplStrSink sink;
+  void *ctx;
+} HplStrOut;
+
+// Receives ints.
+typedef void (*HplI32Sink)(void *ctx, const int32_t *data, size_t len);
+
+// Receives ints: a sink and its context.
+typedef struct HplI32Out {
+  HplI32Sink sink;
+  void *ctx;
+} HplI32Out;
+
+// Receives floats.
+typedef void (*HplF32Sink)(void *ctx, const float *data, size_t len);
+
+// Receives floats: a sink and its context.
+typedef struct HplF32Out {
+  HplF32Sink sink;
+  void *ctx;
+} HplF32Out;
+
+// `cVector3l`
+typedef struct HplVector3l {
+  int32_t x;
+  int32_t y;
+  int32_t z;
+} HplVector3l;
+
+// The C++ parser's variables and file access, for [`hpl_preprocess_parse`].
+typedef struct HplPreprocessHost {
+  void *ctx;
+  // `GetVar`: pointer to the value (`*len` set to its length), or null if
+  // the variable does not exist. The value must stay valid until the next
+  // `define` call.
+  const uint8_t *(*get_var)(void *ctx, struct HplStr name, size_t *len);
+  // `@define`: add a parsing variable.
+  void (*define)(void *ctx, struct HplStr name, struct HplStr value);
+  // `@include`: give the file's contents to `out` and return true, or
+  // return false if the file does not exist.
+  bool (*read_include)(void *ctx, struct HplWStr path, struct HplStrOut out);
+} HplPreprocessHost;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -173,6 +245,10 @@ extern "C" {
 // other `hpl_*` function if logging is wanted. Safe to call again to
 // replace the callback; pass null to silence Rust logging.
 void hpl_rs_init(HplLogCallback log_callback);
+
+// Size of a wide character (`HplWChar`) in the Rust library. Must equal
+// `sizeof(wchar_t)` of the C++ compiler; `RustBridge_Init` checks it.
+size_t hpl_rs_wchar_size(void);
 
 // Version string of the Rust library (static, NUL-terminated).
 const char *hpl_rs_version(void);
@@ -784,6 +860,212 @@ uint32_t hpl_crc_put_data(const uint32_t *table,
                           uint32_t register_,
                           const uint8_t *data,
                           size_t len);
+
+void hpl_string_to_16char(struct HplStr a, struct HplWStrOut out);
+
+void hpl_string_to_8char(struct HplWStr a, struct HplStrOut out);
+
+void hpl_string_utf8_to_wchar(struct HplStr a, struct HplWStrOut out);
+
+void hpl_string_s16bit_to_utf8(struct HplWStr a, struct HplStrOut out);
+
+void hpl_string_get_16bit_from_array(struct HplStr a, struct HplWStrOut out);
+
+void hpl_string_parse_unicode_string(struct HplStr a, struct HplWStrOut out);
+
+// `GetFileExt`
+void hpl_string_get_file_ext(struct HplStr a, struct HplStrOut out);
+
+// `GetFileExtW`
+void hpl_string_get_file_ext_w(struct HplWStr a, struct HplWStrOut out);
+
+// `GetFileName`
+void hpl_string_get_file_name(struct HplStr a, struct HplStrOut out);
+
+// `GetFileNameW`
+void hpl_string_get_file_name_w(struct HplWStr a, struct HplWStrOut out);
+
+// `GetFilePath`
+void hpl_string_get_file_path(struct HplStr a, struct HplStrOut out);
+
+// `GetFilePathW`
+void hpl_string_get_file_path_w(struct HplWStr a, struct HplWStrOut out);
+
+// `RemoveSlashAtEnd`
+void hpl_string_remove_slash_at_end(struct HplStr a, struct HplStrOut out);
+
+// `RemoveSlashAtEndW`
+void hpl_string_remove_slash_at_end_w(struct HplWStr a, struct HplWStrOut out);
+
+// `ToLowerCase`
+void hpl_string_to_lower_case(struct HplStr a, struct HplStrOut out);
+
+// `ToLowerCaseW`
+void hpl_string_to_lower_case_w(struct HplWStr a, struct HplWStrOut out);
+
+// `ToUpperCase`
+void hpl_string_to_upper_case(struct HplStr a, struct HplStrOut out);
+
+// `ToUpperCaseW`
+void hpl_string_to_upper_case_w(struct HplWStr a, struct HplWStrOut out);
+
+// `GetLastChar`
+void hpl_string_get_last_char(struct HplStr a, struct HplStrOut out);
+
+// `GetLastCharW`
+void hpl_string_get_last_char_w(struct HplWStr a, struct HplWStrOut out);
+
+// `SetFileExt`
+void hpl_string_set_file_ext(struct HplStr a, struct HplStr b, struct HplStrOut out);
+
+// `SetFileExtW`
+void hpl_string_set_file_ext_w(struct HplWStr a, struct HplWStr b, struct HplWStrOut out);
+
+// `SetFilePath`
+void hpl_string_set_file_path(struct HplStr a, struct HplStr b, struct HplStrOut out);
+
+// `SetFilePathW`
+void hpl_string_set_file_path_w(struct HplWStr a, struct HplWStr b, struct HplWStrOut out);
+
+// `GetRelativePath`
+void hpl_string_get_relative_path(struct HplStr a, struct HplStr b, struct HplStrOut out);
+
+// `GetRelativePathW`
+void hpl_string_get_relative_path_w(struct HplWStr a, struct HplWStr b, struct HplWStrOut out);
+
+// `Sub`. Panics (aborting with an error in the log) for a negative start
+// on a non-empty string, where the C++ throws.
+void hpl_string_sub(struct HplStr a, int32_t start, int32_t count, struct HplStrOut out);
+
+void hpl_string_sub_w(struct HplWStr a, int32_t start, int32_t count, struct HplWStrOut out);
+
+void hpl_string_add_slash_at_end(struct HplStr a, uint8_t slash, struct HplStrOut out);
+
+void hpl_string_add_slash_at_end_w(struct HplWStr a, HplWChar slash, struct HplWStrOut out);
+
+void hpl_string_replace_char_to(struct HplStr a,
+                                struct HplStr old,
+                                struct HplStr new_,
+                                struct HplStrOut out);
+
+void hpl_string_replace_char_to_w(struct HplWStr a,
+                                  struct HplWStr old,
+                                  struct HplWStr new_,
+                                  struct HplWStrOut out);
+
+// `ReplaceStringTo`. An empty `old` returns the string unchanged (the
+// C++ loops forever).
+void hpl_string_replace_string_to(struct HplStr a,
+                                  struct HplStr old,
+                                  struct HplStr new_,
+                                  struct HplStrOut out);
+
+int32_t hpl_string_get_first_string_pos(struct HplStr a, struct HplStr pattern);
+
+int32_t hpl_string_get_first_string_pos_w(struct HplWStr a, struct HplWStr pattern);
+
+int32_t hpl_string_get_last_string_pos(struct HplStr a, struct HplStr pattern);
+
+int32_t hpl_string_get_last_string_pos_w(struct HplWStr a, struct HplWStr pattern);
+
+int32_t hpl_string_count_chars_in_string(struct HplStr a, struct HplStr ch);
+
+int32_t hpl_string_count_chars_in_string_w(struct HplWStr a, struct HplWStr ch);
+
+// `GetNumericSuffix`: the suffix goes to `out`, its index (or -1) to the
+// nullable `index`.
+void hpl_string_get_numeric_suffix(struct HplStr a, int32_t *index, struct HplStrOut out);
+
+void hpl_string_get_numeric_suffix_w(struct HplWStr a, int32_t *index, struct HplWStrOut out);
+
+// `GetStringVec`: the sink receives each part in turn. A null `separators`
+// means the default set.
+void hpl_string_get_string_vec(struct HplStr a, struct HplStr separators, struct HplStrOut out);
+
+// `GetStringVecW` (`without_cr` false) and `GetStringWVec` (true, whose
+// default separators do not include '\r').
+void hpl_string_get_string_vec_w(struct HplWStr a,
+                                 struct HplWStr separators,
+                                 bool without_cr,
+                                 struct HplWStrOut out);
+
+// `GetIntVec` / `GetUIntVec`: all values in one call.
+void hpl_string_get_int_vec(struct HplStr a, struct HplStr separators, struct HplI32Out out);
+
+// `GetFloatVec`: all values in one call.
+void hpl_string_get_float_vec(struct HplStr a, struct HplStr separators, struct HplF32Out out);
+
+// `UIntStringToArray`: writes up to `size` values; returns how many.
+int32_t hpl_string_uint_string_to_array(uint32_t *dest, struct HplStr a, int32_t size);
+
+// `FloatStringToArray`: writes up to `size` values; returns how many.
+int32_t hpl_string_float_string_to_array(float *dest, struct HplStr a, int32_t size);
+
+int32_t hpl_string_to_int(struct HplStr a, int32_t default_);
+
+float hpl_string_to_float(struct HplStr a, float default_);
+
+bool hpl_string_to_bool(struct HplStr a, bool default_);
+
+struct HplColor hpl_string_to_color(struct HplStr a, struct HplColor default_);
+
+struct HplVector2f hpl_string_to_vector2f(struct HplStr a, struct HplVector2f default_);
+
+struct HplVector3f hpl_string_to_vector3f(struct HplStr a, struct HplVector3f default_);
+
+struct HplVector2l hpl_string_to_vector2l(struct HplStr a, struct HplVector2l default_);
+
+struct HplVector3l hpl_string_to_vector3l(struct HplStr a, struct HplVector3l default_);
+
+// `ToMatrixf`: `dest` may be the same matrix as `default`.
+void hpl_string_to_matrixf(struct HplStr a,
+                           const struct HplMatrixf *default_,
+                           struct HplMatrixf *dest);
+
+// `ToString(int, padding)`
+void hpl_string_from_int(int32_t x, int32_t padding_zeros, struct HplStrOut out);
+
+// `ToString(unsigned int, padding)`
+void hpl_string_from_uint(uint32_t x, int32_t padding_zeros, struct HplStrOut out);
+
+// `ToString(unsigned long, padding)`: `x` zero-extended to 64 bits.
+void hpl_string_from_ulong(uint64_t x, int32_t padding_zeros, struct HplStrOut out);
+
+// `ToString(float, decimals, removeZeros)`
+void hpl_string_from_float(float x,
+                           int32_t num_decimals,
+                           bool remove_trailing_zeros,
+                           struct HplStrOut out);
+
+// `ToStringW(int, padding)`
+void hpl_string_from_int_w(int32_t x, int32_t padding_zeros, struct HplWStrOut out);
+
+// `ToStringW(unsigned long, padding)`: `x` is `(long)value`
+// sign-extended to 64 bits (the C++ prints it with `%ld`).
+void hpl_string_from_long_w(int64_t x, int32_t padding_zeros, struct HplWStrOut out);
+
+// `ToStringW(float, decimals, removeZeros)`
+void hpl_string_from_float_w(float x,
+                             int32_t num_decimals,
+                             bool remove_trailing_zeros,
+                             struct HplWStrOut out);
+
+uint32_t hpl_string_get_hash(struct HplStr a);
+
+uint32_t hpl_string_get_hash_w(struct HplWStr a);
+
+// `EncodeDataToTextString`: the sink is not called if `size` is not a
+// multiple of 4 (the C++ then leaves the output string untouched).
+void hpl_string_encode_data_to_text_string(const uint8_t *data, size_t size, struct HplStrOut out);
+
+void hpl_string_decode_data_from_text_string(struct HplStr text, uint8_t *dest, size_t size);
+
+// `cPreprocessParser::Parse`: the processed text goes to `output` in one
+// call, also when parsing fails (the C++ appends as it goes).
+bool hpl_preprocess_parse(struct HplStr input,
+                          struct HplWStr dir,
+                          const struct HplPreprocessHost *host,
+                          struct HplStrOut output);
 
 #ifdef __cplusplus
 }  // extern "C"

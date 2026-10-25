@@ -85,11 +85,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "hpl-system"
+version = "0.1.0"
+dependencies = [
+ "hpl-math",
+ "log",
+]
+
+[[package]]
 name = "hpl2-ffi"
 version = "0.1.0"
 dependencies = [
  "cbindgen",
  "hpl-math",
+ "hpl-system",
  "log",
 ]
 

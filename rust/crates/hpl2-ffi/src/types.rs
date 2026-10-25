@@ -7,7 +7,7 @@
 
 use hpl_math::bounding_volume::Extents;
 use hpl_math::frustum::{FrustumProjection, FrustumRef, ProjectionType};
-use hpl_math::{Color, Matrixf, Planef, Quaternion, Rect2f, Rect2l, Spheref, TriEdge, TriangleData, Vector2f, Vector2l, Vector3f};
+use hpl_math::{Color, Matrixf, Planef, Quaternion, Rect2f, Rect2l, Spheref, TriEdge, TriangleData, Vector2f, Vector2l, Vector3f, Vector3l};
 
 /// `cVector2f`
 #[repr(C)]
@@ -32,6 +32,15 @@ pub struct HplVector3f {
     pub x: f32,
     pub y: f32,
     pub z: f32,
+}
+
+/// `cVector3l`
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct HplVector3l {
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
 }
 
 /// `cMatrixf`, row-major `m[row][col]`.
@@ -200,6 +209,7 @@ mirror! {
     HplVector2f => Vector2f,
     HplVector2l => Vector2l,
     HplVector3f => Vector3f,
+    HplVector3l => Vector3l,
     HplMatrixf => Matrixf,
     HplQuaternion => Quaternion,
     HplPlanef => Planef,

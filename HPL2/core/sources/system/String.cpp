@@ -22,6 +22,7 @@
 #include <string.h>
 
 #include "system/LowLevelSystem.h"
+#include "system/RustBridge.h"
 
 #if USE_SDL2
 #include "SDL2/SDL_stdinc.h"
@@ -38,6 +39,10 @@
 SDL_COMPILE_TIME_ASSERT(wchar_t, sizeof(wchar_t) == SIZEOF_WCHAR);
 
 namespace hpl {
+
+// With HPL2_RUST_SYSTEM set to 1, cString is implemented by the Rust port
+// (StringRust.cpp); only the private format helpers at the end stay here.
+#if !HPL2_RUST_SYSTEM
 
 	//////////////////////////////////////////////////////////////////////////
 	// PUBLIC METHODS
@@ -1675,6 +1680,8 @@ namespace hpl {
 			lCount -= 4;
 		}
 	}
+
+#endif // !HPL2_RUST_SYSTEM
 
 	//-----------------------------------------------------------------------
 

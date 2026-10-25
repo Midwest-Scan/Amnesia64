@@ -13,6 +13,7 @@ crate-type = ["staticlib", "rlib"]
 
 [dependencies]
 hpl-math.workspace = true
+hpl-system.workspace = true
 log.workspace = true
 
 [build-dependencies]

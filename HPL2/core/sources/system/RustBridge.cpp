@@ -40,6 +40,12 @@ namespace hpl {
 	void RustBridge_Init()
 	{
 		hpl_rs_init(&RustLogCallback);
+
+		if(hpl_rs_wchar_size() != sizeof(wchar_t))
+		{
+			Error("Rust bridge: wchar_t is %d bytes in C++ but %d bytes in hpl2_rs.lib!\n",
+					(int)sizeof(wchar_t), (int)hpl_rs_wchar_size());
+		}
 	}
 
 	//-----------------------------------------------------------------------

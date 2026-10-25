@@ -22,6 +22,7 @@
 #include "system/LowLevelSystem.h"
 #include "system/String.h"
 #include "system/Platform.h"
+#include "system/RustBridge.h"
 
 namespace hpl {
 
@@ -142,9 +143,65 @@ namespace hpl {
 	//////////////////////////////////////////////////////////////////////////
 
 	//-----------------------------------------------------------------------
+
+#if HPL2_RUST_SYSTEM
+	// Host callbacks for the Rust parser (rust/crates/hpl-system, preprocess.rs).
+	// Variables and file access stay on the C++ side.
+
+	struct cRsParserContext
+	{
+		cPreprocessParser *mpParser;
+		cParserVarContainer *mpVars;
+	};
+
+	static const uint8_t* RsParserGetVar(void *apCtx, HplStr aName, size_t *apLen)
+	{
+		cRsParserContext *pCtx = static_cast<cRsParserContext*>(apCtx);
+		tString sName(reinterpret_cast<const char*>(aName.ptr), aName.len);
+
+		//Same order as cPreprocessParser::GetVar
+		tString *pVar = pCtx->mpParser->GetEnvVarContainer()->Get(sName);
+		if(pCtx->mpVars && pVar == NULL) pVar = pCtx->mpVars->Get(sName);
+		if(pVar == NULL) pVar = pCtx->mpParser->GetParsingVarContainer()->Get(sName);
+		if(pVar == NULL) return NULL;
+
+		*apLen = pVar->size();
+		return reinterpret_cast<const uint8_t*>(pVar->data());
+	}
+
+	static void RsParserDefine(void *apCtx, HplStr aName, HplStr aValue)
+	{
+		cRsParserContext *pCtx = static_cast<cRsParserContext*>(apCtx);
+		pCtx->mpParser->GetParsingVarContainer()->Add(	tString(reinterpret_cast<const char*>(aName.ptr), aName.len),
+														tString(reinterpret_cast<const char*>(aValue.ptr), aValue.len));
+	}
+
+	static bool RsParserReadInclude(void *apCtx, HplWStr aPath, HplStrOut aOut)
+	{
+		tWString sPath(aPath.ptr, aPath.len);
+		if(cPlatform::FileExists(sPath)==false) return false;
+
+		unsigned int lFileSize = cPlatform::GetFileSize(sPath);
+		tString sFileData;
+		sFileData.resize(lFileSize);
+		cPlatform::CopyFileToBuffer(sPath,&sFileData[0],lFileSize);
+
+		aOut.sink(aOut.ctx, reinterpret_cast<const uint8_t*>(sFileData.data()), sFileData.size());
+		return true;
+	}
+#endif
+
+	//-----------------------------------------------------------------------
 	
 	bool cPreprocessParser::Parse(const tString* apInput, tString *apOutput, cParserVarContainer *apVarContainer,const tWString& asDir)
 	{
+#if HPL2_RUST_SYSTEM
+		mParsingVars.Clear();
+
+		cRsParserContext context = { this, apVarContainer };
+		HplPreprocessHost host = { &context, &RsParserGetVar, &RsParserDefine, &RsParserReadInclude };
+		return hpl_preprocess_parse(RsStr(*apInput), RsStr(asDir), &host, RsAppend(*apOutput));
+#else
 		//////////////////////////////
 		// Set up data
 		mpCurrentInput = apInput;
@@ -191,6 +248,7 @@ namespace hpl {
 		}
 		
 		return true;
+#endif
 	}
 
 	//-----------------------------------------------------------------------

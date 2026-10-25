@@ -71,6 +71,13 @@ pub extern "C" fn hpl_rs_init(log_callback: HplLogCallback) {
     });
 }
 
+/// Size of a wide character (`HplWChar`) in the Rust library. Must equal
+/// `sizeof(wchar_t)` of the C++ compiler; `RustBridge_Init` checks it.
+#[unsafe(no_mangle)]
+pub extern "C" fn hpl_rs_wchar_size() -> usize {
+    size_of::<crate::system::HplWChar>()
+}
+
 /// Version string of the Rust library (static, NUL-terminated).
 #[unsafe(no_mangle)]
 pub extern "C" fn hpl_rs_version() -> *const c_char {

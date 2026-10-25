@@ -8,6 +8,7 @@ moving on.
 | Module | Status | Switch |
 |---|---|---|
 | `HPL2/core/*/math` | **Ported** (cMath, cQuaternion, cFrustum, cBoundingVolume, cCRC) | `HPL2_RUST_MATH` |
+| `HPL2/core/*/system` | **Partly ported** (cString, cPreprocessParser; SHA1 in Rust only) | `HPL2_RUST_SYSTEM` |
 | everything else | C++ | – |
 
 ## Building
@@ -42,8 +43,10 @@ rust/
   HPL2Rust.props        Shared MSBuild settings, imported by HPL2, Lux and the tools
   crates/
     hpl-math/           Port of HPL2/core/{include,sources}/math. Pure Rust, no C ABI.
+    hpl-system/         Port of parts of HPL2/core/*/system (strings, shader preprocessor)
     hpl2-ffi/           The C ABI: builds hpl2_rs.lib and generates include/hpl2_rs.h
   tools/math-diff/      Differential test: original C++ vs. Rust, bit for bit
+  tools/system-diff/    The same for cString and cPreprocessParser
 ```
 
 C++ side:
@@ -52,6 +55,7 @@ C++ side:
 HPL2/core/include/system/RustBridge.h    switches, type conversions, layout checks
 HPL2/core/sources/system/RustBridge.cpp  routes Rust log output/panics to Log/Error
 HPL2/core/sources/math/MathRust.cpp      cMath implemented by calling Rust
+HPL2/core/sources/system/StringRust.cpp  cString implemented by calling Rust
 ```
 
 ## How a module is ported
@@ -81,6 +85,17 @@ FFI conventions:
 * Small values go by value, matrices and arrays by pointer, outputs through
   nullable pointers written after all inputs are read (C++ may pass the same
   object as input and output).
+* Strings go in as views, `HplStr` / `HplWStr` (pointer + length, so
+  embedded NULs survive; a null pointer stands for a null `const char*`).
+  Results come back through sinks, `HplStrOut` etc. (callback + context),
+  which assign, append or push into a C++ container: Rust never hands out
+  memory that C++ has to free. `RsStr`, `RsAssign`, `RsAppend` and `RsPush`
+  in `RustBridge.h` build them:
+  `hpl_string_get_file_name(RsStr(sPath), RsAssign(sName));`
+* `wchar_t` is `HplWChar`: 16 bits on Windows, 32 elsewhere, matching the
+  engine's `tWString`. `RustBridge_Init` checks both sides agree.
+* Callbacks into C++ (e.g. `HplPreprocessHost`) are used where the Rust
+  code needs engine state that has not been ported yet.
 * Enums cross as `int32_t`. C++ bool members that might be uninitialised go
   through `RsBool`.
 * All engine Rust code is exported from the single `hpl2-ffi` crate: a
@@ -98,7 +113,13 @@ be inlined.
 and cargo) builds the math module four ways and compares the outputs:
 original sources (from a checkout of the commit before the port, e.g.
 `git worktree add ../pristine <commit>`), switch off, Rust release and Rust
-debug. It also serves as the template for testing later modules.
+debug. `tools/system-diff/run.sh` does the same for the system module; it
+also compares the error and warning messages.
+
+These tests run on Linux, where `wchar_t` is 32 bits and the C library is
+glibc. The Windows-only behaviour (16-bit `wchar_t`, UCRT `atoi` overflow
+and NaN spelling, the `GetHash` reads) is covered by unit tests with
+reference values instead.
 
 ## Troubleshooting
 
