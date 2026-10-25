@@ -42,7 +42,7 @@
 #define HPL2_RUST_GENERATE 1
 #endif
 
-// cAStarHandler search core (graph, sets and path setup stay in C++)
+// AStar search core and AI node/grid helpers (ownership and physics stay in C++)
 #ifndef HPL2_RUST_AI
 #define HPL2_RUST_AI 1
 #endif
@@ -85,7 +85,13 @@ namespace hpl {
 	// Layout checks: the Hpl* mirrors must match the engine classes exactly,
 	// since arrays of engine objects are passed to Rust by pointer.
 
-	// Numeric snapshot only: cLogicTimer is copied field-by-field, never aliased.
+	// Numeric snapshots only: initialized members copied, never native class storage.
+	static_assert(sizeof(HplAINodeGridDimensions) == 24, "AI grid dimensions layout");
+	static_assert(alignof(HplAINodeGridDimensions) == alignof(float), "AI grid dimensions alignment");
+	static_assert(offsetof(HplAINodeGridDimensions, minimum) == 0, "AI grid minimum offset");
+	static_assert(offsetof(HplAINodeGridDimensions, maximum) == 8, "AI grid maximum offset");
+	static_assert(offsetof(HplAINodeGridDimensions, map_size) == 16, "AI grid map size offset");
+	// cLogicTimer numeric state:
 	static_assert(sizeof(HplLogicTimerState) == 32, "logic timer state layout");
 	static_assert(alignof(HplLogicTimerState) == alignof(double), "logic timer state alignment");
 	static_assert(offsetof(HplLogicTimerState, local_time) == 0, "logic timer local time");

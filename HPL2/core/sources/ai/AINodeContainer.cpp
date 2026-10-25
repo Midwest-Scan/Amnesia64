@@ -24,6 +24,7 @@
 #include "system/String.h"
 #include "system/LowLevelSystem.h"
 #include "system/Platform.h"
+#include "system/RustBridge.h"
 
 #include "math/Math.h"
 
@@ -31,6 +32,9 @@
 #include "impl/tinyXML/tinyxml.h"
 
 #include <algorithm>
+#if HPL2_RUST_AI
+#include <exception>
+#endif
 
 namespace hpl {
 
@@ -54,6 +58,13 @@ namespace hpl {
 
 	void cAINode::AddEdge(cAINode *pNode)
 	{
+#if HPL2_RUST_AI
+		cAINodeEdge Edge;
+		Edge.mpNode = pNode;
+		hpl_ai_node_add_edge(ToRs(mvPosition), ToRs(pNode->mvPosition), &Edge.mfDistance, &Edge.mfSqrDistance);
+		// Native append retains allocation, duplicate edges and C++ exceptions.
+		mvEdges.push_back(Edge);
+#else
 		cAINodeEdge Edge;
 		
 		Edge.mpNode = pNode;
@@ -61,6 +72,7 @@ namespace hpl {
 		Edge.mfSqrDistance = cMath::Vector3DistSqr(mvPosition, pNode->mvPosition);
 		
 		mvEdges.push_back(Edge);
+#endif
 	}
 	
 	//-----------------------------------------------------------------------
@@ -218,6 +230,12 @@ namespace hpl {
 
 	bool cAINodeIterator::IncGridPos()
 	{
+#if HPL2_RUST_AI
+		HplVector2l vNext;
+		bool bResult = hpl_ai_node_iterator_increment(ToRs(mvGridPos), ToRs(mvStartGridPos), ToRs(mvEndGridPos), &vNext);
+		mvGridPos = FromRs(vNext);
+		return bResult;
+#else
 		mvGridPos.x++;
 		if(mvGridPos.x > mvEndGridPos.x)
 		{
@@ -229,6 +247,7 @@ namespace hpl {
 		}
 
 		return true;
+#endif
 	}
 
 	//-----------------------------------------------------------------------
@@ -424,6 +443,75 @@ namespace hpl {
 
 	void cAINodeContainer::BuildNodeGridMap()
 	{
+#if HPL2_RUST_AI
+		struct cGridContext
+		{
+			cAINodeContainer *mpContainer;
+			std::exception_ptr mException;
+		};
+		cGridContext context = { this, std::exception_ptr() };
+		HplAINodeGridHost host = {
+			&context,
+			[](void *apCtx) -> size_t {
+				return static_cast<cGridContext*>(apCtx)->mpContainer->mvNodes.size();
+			},
+			[](void *apCtx, size_t alIndex) -> void* {
+				return static_cast<cGridContext*>(apCtx)->mpContainer->mvNodes[alIndex];
+			},
+			[](void *, void *apNode) -> HplVector3f {
+				return ToRs(static_cast<cAINode*>(apNode)->GetPosition());
+			},
+			[](void *apCtx) -> int32_t {
+				return static_cast<cGridContext*>(apCtx)->mpContainer->mlNodesPerGrid;
+			},
+			[](void *apCtx, HplVector2f avMinimum, HplVector2f avMaximum) {
+				cAINodeContainer *pContainer = static_cast<cGridContext*>(apCtx)->mpContainer;
+				pContainer->mvMinGridPos = FromRs(avMinimum);
+				pContainer->mvMaxGridPos = FromRs(avMaximum);
+			},
+			[](void *apCtx, HplVector2l avSize) {
+				static_cast<cGridContext*>(apCtx)->mpContainer->mvGridMapSize = FromRs(avSize);
+			},
+			[](void *apCtx, size_t alCount) -> bool {
+				cGridContext *pCtx = static_cast<cGridContext*>(apCtx);
+				try
+				{
+					// Faithful: resize retains old lists; rebuilding does not clear them.
+					pCtx->mpContainer->mvGrids.resize(alCount);
+					return true;
+				}
+				catch(...) { pCtx->mException = std::current_exception(); return false; }
+			},
+			[](void *apCtx) -> HplAINodeGridDimensions {
+				cAINodeContainer *pContainer = static_cast<cGridContext*>(apCtx)->mpContainer;
+				// These members have been set; cell size may still be from an old grid.
+				HplAINodeGridDimensions dimensions = {
+					ToRs(pContainer->mvMinGridPos), ToRs(pContainer->mvMaxGridPos), ToRs(pContainer->mvGridMapSize)
+				};
+				return dimensions;
+			},
+			[](void *apCtx, HplVector2f avSize) {
+				static_cast<cGridContext*>(apCtx)->mpContainer->mvGridSize = FromRs(avSize);
+			},
+			[](void *apCtx) -> HplVector2f {
+				return ToRs(static_cast<cGridContext*>(apCtx)->mpContainer->mvGridSize);
+			},
+			[](void *apCtx) -> size_t {
+				return static_cast<cGridContext*>(apCtx)->mpContainer->mvGrids.size();
+			},
+			[](void *apCtx, size_t alIndex, void *apNode) -> bool {
+				cGridContext *pCtx = static_cast<cGridContext*>(apCtx);
+				try
+				{
+					pCtx->mpContainer->mvGrids[alIndex].mlstNodes.push_back(static_cast<cAINode*>(apNode));
+					return true;
+				}
+				catch(...) { pCtx->mException = std::current_exception(); return false; }
+			}
+		};
+		hpl_ai_node_build_grid(&host);
+		if(context.mException) std::rethrow_exception(context.mException);
+#else
 		bool bLog=false;
 
 		if(bLog)Log("Nodes: %d\n",mvNodes.size());
@@ -490,6 +578,7 @@ namespace hpl {
 
 			mvGrids[vGridPos.y * (mvGridMapSize.x+1) + vGridPos.x].mlstNodes.push_back(pNode);
 		}
+#endif
 	}
 
 	//-----------------------------------------------------------------------
@@ -646,6 +735,9 @@ namespace hpl {
 	
 	cVector2l cAINodeContainer::GetGridPosFromLocal(const cVector2f &avLocalPos)
 	{
+#if HPL2_RUST_AI
+		return FromRs(hpl_ai_node_grid_position(ToRs(avLocalPos), ToRs(mvGridSize), ToRs(mvGridMapSize)));
+#else
 		cVector2l vGridPos;
 		vGridPos.x = (int)(avLocalPos.x / mvGridSize.x);
 		vGridPos.y = (int)(avLocalPos.y / mvGridSize.y);
@@ -656,16 +748,21 @@ namespace hpl {
 		if(vGridPos.y > mvGridMapSize.y) vGridPos.y = mvGridMapSize.y;
 
 		return vGridPos;
+#endif
 	}
 
 	//-----------------------------------------------------------------------
 	
 	cAIGridNode* cAINodeContainer::GetGrid(const cVector2l& avPos)
 	{
+#if HPL2_RUST_AI
+		return &mvGrids[hpl_ai_node_grid_index(ToRs(avPos), ToRs(mvGridMapSize), mvGrids.size())];
+#else
 		int lIndex = avPos.y * (mvGridMapSize.x+1) + avPos.x;
 		//Log(" index: %d Max: %d\n",lIndex,(int)mvGrids.size());
 
 		return &mvGrids[lIndex];
+#endif
 	}
 
 	//-----------------------------------------------------------------------

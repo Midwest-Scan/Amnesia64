@@ -3,3 +3,4 @@
 #![allow(clippy::neg_cmp_op_on_partial_ord, clippy::manual_range_contains)]
 
 pub mod astar;
+pub mod node_container;

@@ -10,7 +10,7 @@ moving on.
 | `HPL2/core/*/math` | **Ported** (cMath, cQuaternion, cFrustum, cBoundingVolume, cCRC) | `HPL2_RUST_MATH` |
 | `HPL2/core/*/system` | **Partly ported** (cString, cPreprocessParser, cLogicTimer, VideoComp; SHA1 in Rust only) | `HPL2_RUST_SYSTEM` |
 | `HPL2/core/*/generate` | **Algorithms ported** (cVoxelMap sizing, writes, debug traversal; C++ allocation/factory shell retained) | `HPL2_RUST_GENERATE` |
-| `HPL2/core/*/ai` | **Partly ported** (AStar expansion, minimum selection, cost and heuristic; graph/search ownership and path setup remain C++) | `HPL2_RUST_AI` |
+| `HPL2/core/*/ai` | **Partly ported** (AStar core, node edge metrics, grid build/lookup and iterator stepping; ownership, physics and path setup remain C++) | `HPL2_RUST_AI` |
 | everything else | C++ | – |
 
 The Lux project lives under `amnesia/src/game/` in this checkout. Editors
@@ -52,13 +52,14 @@ rust/
     hpl-math/           Port of HPL2/core/{include,sources}/math. Pure Rust, no C ABI.
     hpl-system/         Strings, shader preprocessor, SHA1, logic timer, video mode ordering
     hpl-generate/       Voxel allocation arithmetic, flat indexing and live debug traversal
-    hpl-ai/             AStar expansion, minimum selection and cost/heuristic calculations
+    hpl-ai/             AStar core plus node edge metrics and grid algorithms
     hpl2-ffi/           The C ABI: builds hpl2_rs.lib and generates include/hpl2_rs.h
   tools/math-diff/      Differential test: original C++ vs. Rust, bit for bit
   tools/system-diff/    The same for cString and cPreprocessParser
   tools/system-core-diff/ LogicTimer and VideoComp; native MSVC and Linux runners
   tools/generate-diff/  VoxelMap public API, real graphics-interface mock, allocation/exception traces
   tools/astar-diff/     AStar public searches, controlled graph/visibility, live search-node traces
+  tools/ai-grid-diff/   Real AINodeContainer builds, lookup/traversal, edge bits and allocation traces
 ```
 
 C++ side:
@@ -72,6 +73,7 @@ HPL2/core/sources/system/LogicTimer.cpp  per-function Rust forwards, original bo
 HPL2/core/sources/system/Platform.cpp    VideoComp forwards; variadic wrappers stay C++
 HPL2/core/sources/generate/VoxelMap.cpp per-function forwards; allocation/ownership stay C++
 HPL2/core/sources/ai/AStar.cpp         four core forwards; path setup and native sets retained
+HPL2/core/sources/ai/AINodeContainer.cpp edge/grid forwards; ownership, lists and physics retained
 ```
 
 ## How a module is ported
@@ -134,6 +136,12 @@ FFI conventions:
   transfer, `CanAddNode` and node insertion, returns a stop signal, then
   rethrows after Rust returns. Ordinary rejection and saved exceptions are
   separate results; every nested invocation has its own exception slot.
+* `HplAINodeGridHost` uses the same live-handle/exception-stop pattern for
+  grid construction. `HplAINodeGridDimensions` mirrors an initialized numeric
+  snapshot (minimum, maximum, map size), not a C++ object. Cell size is omitted
+  because it is assigned only after native resize succeeds. Rust/C++ size,
+  alignment and field offsets are checked. Native resize/list append retain
+  ownership and allocation behavior; no node slice survives those calls.
 * All engine Rust code is exported from the single `hpl2-ffi` crate: a
   program can only link one Rust static library.
 * `panic = "abort"`; a panic is reported through `hpl::Error` first.
@@ -408,9 +416,104 @@ break line of sight and load a save to exercise repeated searches. This is
 the actual `amnesia/src/game/LuxEnemyPathfinder.cpp` caller. In-game testing
 remains for the owner.
 
-Recommended next slice: bounded `AINodeContainer` graph/grid helpers, keeping
-physics visibility calls and graph ownership in C++. The rest of AStar path
-setup and the AI state machine also remain C++ for a later measured slice.
+## AI node/grid fidelity and verification
+
+`hpl-ai::node_container` ports five bounded helpers in `AINodeContainer.cpp`:
+`cAINode::AddEdge` metrics, `BuildNodeGridMap`, `GetGridPosFromLocal`, `GetGrid`
+indexing and `cAINodeIterator::IncGridPos`. Five exports in `ai_grid.rs` use
+the existing `HPL2_RUST_AI` switch. Original bodies remain unchanged at 0.
+
+Node allocation, names/ID lookup, edge-vector append, grid-vector resize and
+list append stay native. Iterator construction, `HasNext` and `Next` retain
+their native list state. `Compile` connection filtering/sorting, physics ray
+queries, XML I/O and lifecycle remain C++. No class layout, third-party
+dependency or phase-2 ownership change is involved.
+
+The original was audited before implementation. Preserved quirks:
+
+* Rebuilding never clears surviving cell lists. Same-size rebuilds append
+  duplicates; resizing preserves old lower-index lists even after bounds or
+  grid stride change, destroying only removed cells. Node order stays native.
+* Bounds fold x/z coordinates with strict comparisons. A NaN in the first
+  node stays; later NaNs are ignored. Equal signed zeros retain the first sign.
+* Dimension uses f32 node count / nodes per grid, float square root, `+0.5f`,
+  truncation, then `+1`. Storage is `(dimension+1)^2`, while cell extent divides
+  by dimension. Queries clamp inclusively to the border row/column.
+* Bounds and dimensions are written before resize; cell size follows success.
+  Allocation failure leaves that exact partial state. Append failures retain
+  the completed prefix, stop Rust immediately and rethrow in C++.
+* Build insertion divides only when cell extent is strictly positive. Query
+  conversion divides unconditionally, truncates, clamps low, then clamps high.
+  Flat indexing preserves defined cross-axis aliases; it does not add axis
+  checks absent from the original.
+* Iterator stepping advances x first, then wraps and advances y. Exhaustion
+  leaves coordinates advanced. Negative radii/inverted ranges are not
+  normalized, and native `Next` still advances before returning its node.
+* Edge metrics store both Euclidean distance and directly computed squared
+  distance; squaring the rounded root would change bits. Duplicate and self
+  edges remain accepted, with C++ allocation exceptions preserved.
+  The native AddEdge call site selects squared-sum NaNs in y/x/z priority;
+  this is explicit locally, including payload conflicts with infinity-minus-
+  infinity. Shared math code is unchanged and finite arithmetic keeps its order.
+
+Deviations are limited to original undefined operations: empty grid builds,
+signed dimension/allocation/index/increment overflow, and out-of-buffer flat
+indices abort through the Rust panic hook. Invalid float-to-int casts use
+the existing x86 `INT_MIN` helper before the original clamps/indexing; this
+includes zero-extent query division. Defined cases are compared separately
+from these defensive unit tests. Invalidated graph/list pointers remain
+invalid caller input, not a new supported operation.
+
+`tools/ai-grid-diff/run.ps1 <repo> [<pristine-repo>]` runs on native Windows
+x64; `run.sh` is its Linux companion. Baseline `890af92` was archived before
+edits into `rust/target/ai-grid-pristine`; archive `HPL2/core` from that commit
+to recreate it. All graph/grid/node/iterator bodies come from the actual
+production source in each variant. TinyXML is linked to satisfy MSVC's unused
+references, while unused world/string/platform dependencies have abort-only
+stubs. The harness does not replace the algorithm or expose private members.
+
+The corpus exercises 2,664 builds and 42,389 public iterator queries, including
+2,048 seeded node sets, plus 2,166 special float edge cases and 4,096 seeded
+random edges. It covers public node/edge/build/iterator APIs, repeated builds,
+changed positions and growing grids, border and negative-radius queries,
+allocation failures and recovery, special float edge metrics, and thousands
+of seeded cases. It prints float bits, allocation events, node order and logs.
+An allocation callback adds an inside-bounds node during grid resize, checking
+that later insertion reads the live node count. Tiny/large finite grids use
+bounded query-to-cell ratios so the original casts remain defined.
+Empty builds, invalid grid casts/indices and unrepresentable query quotients
+are excluded with comments. Degenerate grid builds are tested without making
+undefined queries into zero-width axes.
+
+`tools/ai-grid-diff/mutate.ps1 <repo>` plants twelve independent metric,
+precision, sizing, border, traversal, live-count and exception-stop bugs. It
+restores source bytes and rebuilds both Rust profiles in `finally`. Only real
+output mismatches count; compile/runtime failures do not. Run it without
+concurrent Rust edits/builds. Logs remain under `rust/target/ai-grid-diff/`.
+
+Verification for this slice (Rust 1.97.0, native Windows x64 MSVC):
+
+* Workspace unit tests: **117 passed** (35 AI, 13 generate, 33 math, 27 system,
+  9 FFI; 21 added by this slice).
+* `cargo clippy --workspace --all-targets --locked -- -D warnings`: clean.
+* Differential: **1,309,674 lines, 4-way identical** against `890af92`.
+* Mutation check: **12/12 caught, 0 equivalent mutants**, all output mismatches,
+  followed by restored source bytes/libraries and a clean four-way pass.
+* Full `Amnesia.sln` **Debug x64 and Release x64 passed**, including Lux and
+  all six editor/tool projects, using normal process access for MSVC.
+* Linux/WSL was not run. NaN operand choices are verified against native MSVC;
+  the Linux companion does not imply an untested GCC result.
+
+Reload the Rust project in Visual Studio (or restart VS), build Debug and
+Release x64, then load an enemy map, watch patrols and draw an enemy around
+corners. Reload a save to repeat grid setup. Both cached `LoadFromFile` and
+uncached `Compile` build grids; AddEdge also runs during connection rebuilding
+and is directly covered by the differential corpus. In-game validation remains
+for the owner.
+
+Recommended next slice: `Compile` connection filtering and trimming, retaining
+physics visibility calls and native sorting in C++. AStar path setup and the
+AI state machine remain later candidates.
 
 ## Troubleshooting
 

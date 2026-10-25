@@ -81,6 +81,44 @@ typedef struct HplVector3f {
   float z;
 } HplVector3f;
 
+// `cVector2f`
+typedef struct HplVector2f {
+  float x;
+  float y;
+} HplVector2f;
+
+// `cVector2l`
+typedef struct HplVector2l {
+  int32_t x;
+  int32_t y;
+} HplVector2l;
+
+// Initialized numeric grid members, NOT a view of `cAINodeContainer`.
+typedef struct HplAINodeGridDimensions {
+  struct HplVector2f minimum;
+  struct HplVector2f maximum;
+  struct HplVector2l map_size;
+} HplAINodeGridDimensions;
+
+// Live grid construction callbacks. Every callback is required and must not
+// throw. Resize/push report false to stop, then C++ rethrows its saved exception.
+typedef struct HplAINodeGridHost {
+  void *ctx;
+  size_t (*node_count)(void *ctx);
+  void *(*node)(void *ctx, size_t index);
+  struct HplVector3f (*position)(void *ctx, void *node);
+  int32_t (*nodes_per_grid)(void *ctx);
+  void (*set_bounds)(void *ctx, struct HplVector2f minimum, struct HplVector2f maximum);
+  void (*set_map_size)(void *ctx, struct HplVector2l size);
+  bool (*resize_grids)(void *ctx, size_t count);
+  // Called only after bounds/map-size assignment; does not read cell size.
+  struct HplAINodeGridDimensions (*dimensions)(void *ctx);
+  void (*set_cell_size)(void *ctx, struct HplVector2f size);
+  struct HplVector2f (*cell_size)(void *ctx);
+  size_t (*grid_count)(void *ctx);
+  bool (*push_node)(void *ctx, size_t index, void *node);
+} HplAINodeGridHost;
+
 // Receives one log line (UTF-8, no trailing newline). Must be thread safe.
 typedef void (*HplLogCallback)(int32_t level, const char *message);
 
@@ -135,12 +173,6 @@ typedef struct HplFrustumProjection {
   int32_t projection_type;
 } HplFrustumProjection;
 
-// `cVector2f`
-typedef struct HplVector2f {
-  float x;
-  float y;
-} HplVector2f;
-
 // Borrowed view of a `cFrustum`'s derived geometry. The pointers must stay
 // valid for the duration of the call.
 typedef struct HplFrustumView {
@@ -187,12 +219,6 @@ typedef struct HplRect2f {
   float w;
   float h;
 } HplRect2f;
-
-// `cVector2l`
-typedef struct HplVector2l {
-  int32_t x;
-  int32_t y;
-} HplVector2l;
 
 // `cQuaternion`: vector part then `w`.
 typedef struct HplQuaternion {
@@ -312,6 +338,26 @@ void *hpl_astar_get_best_node(const struct HplAStarOpenHost *host);
 float hpl_astar_cost(float distance, float node_y, bool has_parent, float parent_y);
 
 float hpl_astar_heuristic(struct HplVector3f start, struct HplVector3f goal);
+
+void hpl_ai_node_add_edge(struct HplVector3f start,
+                          struct HplVector3f end,
+                          float *distance,
+                          float *squared);
+
+void hpl_ai_node_build_grid(const struct HplAINodeGridHost *host);
+
+struct HplVector2l hpl_ai_node_grid_position(struct HplVector2f local,
+                                             struct HplVector2f cell,
+                                             struct HplVector2l map_size);
+
+size_t hpl_ai_node_grid_index(struct HplVector2l position,
+                              struct HplVector2l map_size,
+                              size_t count);
+
+bool hpl_ai_node_iterator_increment(struct HplVector2l position,
+                                    struct HplVector2l start,
+                                    struct HplVector2l end,
+                                    struct HplVector2l *out);
 
 // Initialise the Rust side of the engine. Call once at startup, before any
 // other `hpl_*` function if logging is wanted. Safe to call again to

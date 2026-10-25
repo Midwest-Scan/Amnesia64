@@ -9,6 +9,22 @@ use hpl_math::bounding_volume::Extents;
 use hpl_math::frustum::{FrustumProjection, FrustumRef, ProjectionType};
 use hpl_math::{Color, Matrixf, Planef, Quaternion, Rect2f, Rect2l, Spheref, TriEdge, TriangleData, Vector2f, Vector2l, Vector3f, Vector3l};
 use hpl_system::logic_timer::LogicTimer;
+use hpl_ai::node_container::GridDimensions;
+
+/// Initialized numeric grid members, NOT a view of `cAINodeContainer`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct HplAINodeGridDimensions {
+    pub minimum: HplVector2f,
+    pub maximum: HplVector2f,
+    pub map_size: HplVector2l,
+}
+
+const _: () = {
+    assert!(std::mem::offset_of!(HplAINodeGridDimensions, minimum) == std::mem::offset_of!(GridDimensions, minimum));
+    assert!(std::mem::offset_of!(HplAINodeGridDimensions, maximum) == std::mem::offset_of!(GridDimensions, maximum));
+    assert!(std::mem::offset_of!(HplAINodeGridDimensions, map_size) == std::mem::offset_of!(GridDimensions, map_size));
+};
 
 /// Copy of `cLogicTimer`'s numeric state, NOT a view of the C++ class.
 #[repr(C)]
@@ -226,6 +242,7 @@ macro_rules! mirror {
 }
 
 mirror! {
+    HplAINodeGridDimensions => GridDimensions,
     HplLogicTimerState => LogicTimer,
     HplVector2f => Vector2f,
     HplVector2l => Vector2l,
