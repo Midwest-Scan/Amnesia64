@@ -359,6 +359,93 @@ namespace hpl {
 
 	void cAINodeContainer::Compile()
 	{
+#if HPL2_RUST_AI
+		BuildNodeGridMap();
+		tAINodeVecIt CurrentNodeIt = mvNodes.begin();
+		for(; CurrentNodeIt != mvNodes.end(); ++CurrentNodeIt)
+		{
+			cAINode *pNode = *CurrentNodeIt;
+			// Faithful: capture the radius once; filters read live limits through the host.
+			cAINodeIterator nodeIt = GetNodeIterator(pNode->mvPosition,mfMaxEndDistance*1.5f);
+			struct cCompileContext
+			{
+				cAINodeContainer *mpContainer;
+				cAINode *mpNode;
+				cAINodeIterator *mpIterator;
+				std::exception_ptr mException;
+			};
+			cCompileContext context = { this, pNode, &nodeIt, std::exception_ptr() };
+			HplAINodeCompileHost host = {
+				&context,
+				[](void *apCtx) -> void* {
+					cAINodeIterator *pIt = static_cast<cCompileContext*>(apCtx)->mpIterator;
+					return pIt->HasNext() ? pIt->Next() : NULL;
+				},
+				[](void *, void *apNode) -> HplVector3f {
+					return ToRs(static_cast<cAINode*>(apNode)->mvPosition);
+				},
+				[](void *apCtx) -> float {
+					return static_cast<cCompileContext*>(apCtx)->mpContainer->mfMaxEndDistance;
+				},
+				[](void *apCtx) -> float {
+					return static_cast<cCompileContext*>(apCtx)->mpContainer->mfMaxHeight;
+				},
+				[](void *apCtx, void *apCandidate, bool *apVisible) -> bool {
+					cCompileContext *pCtx = static_cast<cCompileContext*>(apCtx);
+					try
+					{
+						cAINode *pEndNode = static_cast<cAINode*>(apCandidate);
+						tAIFreePathFlag flag = eAIFreePathFlag_SkipDynamic | eAIFreePathFlag_SkipVolatile;
+						*apVisible = pCtx->mpContainer->FreePath(pCtx->mpNode->mvPosition, pEndNode->mvPosition,-1,flag);
+						return true;
+					}
+					catch(...) { pCtx->mException = std::current_exception(); return false; }
+				},
+				[](void *apCtx, void *apCandidate) -> bool {
+					cCompileContext *pCtx = static_cast<cCompileContext*>(apCtx);
+					try
+					{
+						pCtx->mpNode->AddEdge(static_cast<cAINode*>(apCandidate));
+						return true;
+					}
+					catch(...) { pCtx->mException = std::current_exception(); return false; }
+				},
+				[](void *apCtx) -> bool {
+					cCompileContext *pCtx = static_cast<cCompileContext*>(apCtx);
+					try
+					{
+						// Keep native unstable sorting and its equal-distance ordering.
+						std::sort(pCtx->mpNode->mvEdges.begin(), pCtx->mpNode->mvEdges.end(), cSortEndNodes());
+						return true;
+					}
+					catch(...) { pCtx->mException = std::current_exception(); return false; }
+				},
+				[](void *apCtx) -> int32_t {
+					return static_cast<cCompileContext*>(apCtx)->mpContainer->mlMaxNodeEnds;
+				},
+				[](void *apCtx) -> size_t {
+					return static_cast<cCompileContext*>(apCtx)->mpNode->mvEdges.size();
+				},
+				[](void *apCtx, size_t alCount) -> bool {
+					cCompileContext *pCtx = static_cast<cCompileContext*>(apCtx);
+					try
+					{
+						pCtx->mpNode->mvEdges.resize(alCount);
+						return true;
+					}
+					catch(...) { pCtx->mException = std::current_exception(); return false; }
+				},
+				[](void *apCtx, size_t alIndex) -> float {
+					return static_cast<cCompileContext*>(apCtx)->mpNode->mvEdges[alIndex].mfDistance;
+				},
+				[](void *apCtx) -> int32_t {
+					return static_cast<cCompileContext*>(apCtx)->mpContainer->mlMinNodeEnds;
+				}
+			};
+			hpl_ai_node_compile(pNode, &host);
+			if(context.mException) std::rethrow_exception(context.mException);
+		}
+#else
 		BuildNodeGridMap();
 
 		tAINodeVecIt CurrentNodeIt = mvNodes.begin();
@@ -437,6 +524,7 @@ namespace hpl {
 
 			//Log("  Final edge count: %d\n",pNode->mvEdges.size());
 		}	
+#endif
 	}
 
 	//-----------------------------------------------------------------------

@@ -81,6 +81,25 @@ typedef struct HplVector3f {
   float z;
 } HplVector3f;
 
+// All callbacks are required and must not throw across Rust. The native
+// iterator returns null only at exhaustion. Mutators return false on a saved
+// exception; visible writes its result separately from its success status.
+typedef struct HplAINodeCompileHost {
+  void *ctx;
+  void *(*next_candidate)(void *ctx);
+  struct HplVector3f (*position)(void *ctx, void *node);
+  float (*max_distance)(void *ctx);
+  float (*max_height)(void *ctx);
+  bool (*visible)(void *ctx, void *candidate, bool *visible);
+  bool (*add_edge)(void *ctx, void *candidate);
+  bool (*sort_edges)(void *ctx);
+  int32_t (*max_edges)(void *ctx);
+  size_t (*edge_count)(void *ctx);
+  bool (*resize_edges)(void *ctx, size_t count);
+  float (*edge_distance)(void *ctx, size_t index);
+  int32_t (*min_edges)(void *ctx);
+} HplAINodeCompileHost;
+
 // `cVector2f`
 typedef struct HplVector2f {
   float x;
@@ -338,6 +357,8 @@ void *hpl_astar_get_best_node(const struct HplAStarOpenHost *host);
 float hpl_astar_cost(float distance, float node_y, bool has_parent, float parent_y);
 
 float hpl_astar_heuristic(struct HplVector3f start, struct HplVector3f goal);
+
+void hpl_ai_node_compile(void *source, const struct HplAINodeCompileHost *host);
 
 void hpl_ai_node_add_edge(struct HplVector3f start,
                           struct HplVector3f end,

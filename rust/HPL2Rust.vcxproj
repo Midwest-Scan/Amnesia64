@@ -132,6 +132,13 @@
     <None Include="tools\ai-grid-diff\run.ps1" />
     <None Include="tools\ai-grid-diff\run.sh" />
     <None Include="tools\ai-grid-diff\mutate.ps1" />
+    <None Include="crates\hpl-ai\src\node_compile.rs" />
+    <None Include="crates\hpl2-ffi\src\ai_compile.rs" />
+    <None Include="tools\ai-compile-diff\diff_main.cpp" />
+    <None Include="tools\ai-compile-diff\stubs.cpp" />
+    <None Include="tools\ai-compile-diff\run.ps1" />
+    <None Include="tools\ai-compile-diff\run.sh" />
+    <None Include="tools\ai-compile-diff\mutate.ps1" />
     <ClInclude Include="crates\hpl2-ffi\include\hpl2_rs.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

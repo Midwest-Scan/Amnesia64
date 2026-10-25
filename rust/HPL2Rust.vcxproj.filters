@@ -37,6 +37,9 @@
     <Filter Include="tools\ai-grid-diff">
       <UniqueIdentifier>{5b32714b-56ac-4500-b99d-9982563ce11b}</UniqueIdentifier>
     </Filter>
+    <Filter Include="tools\ai-compile-diff">
+      <UniqueIdentifier>{990e8603-db3f-42b1-a9d9-31c686898f0f}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <None Include="build.cmd" />
@@ -283,6 +286,27 @@
     </None>
     <None Include="tools\ai-grid-diff\mutate.ps1">
       <Filter>tools\ai-grid-diff</Filter>
+    </None>
+    <None Include="crates\hpl-ai\src\node_compile.rs">
+      <Filter>crates\hpl-ai</Filter>
+    </None>
+    <None Include="crates\hpl2-ffi\src\ai_compile.rs">
+      <Filter>crates\hpl2-ffi</Filter>
+    </None>
+    <None Include="tools\ai-compile-diff\diff_main.cpp">
+      <Filter>tools\ai-compile-diff</Filter>
+    </None>
+    <None Include="tools\ai-compile-diff\stubs.cpp">
+      <Filter>tools\ai-compile-diff</Filter>
+    </None>
+    <None Include="tools\ai-compile-diff\run.ps1">
+      <Filter>tools\ai-compile-diff</Filter>
+    </None>
+    <None Include="tools\ai-compile-diff\run.sh">
+      <Filter>tools\ai-compile-diff</Filter>
+    </None>
+    <None Include="tools\ai-compile-diff\mutate.ps1">
+      <Filter>tools\ai-compile-diff</Filter>
     </None>
     <ClInclude Include="crates\hpl2-ffi\include\hpl2_rs.h">
       <Filter>crates\hpl2-ffi</Filter>
