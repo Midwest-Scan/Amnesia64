@@ -715,6 +715,7 @@
     <ClCompile Include="sources\resources\EntFileManager.cpp" />
     <ClCompile Include="sources\resources\EntityLoader_Object.cpp" />
     <ClCompile Include="sources\resources\FileSearcher.cpp" />
+    <ClCompile Include="sources\resources\FileSearcherRust.cpp" />
     <ClCompile Include="sources\resources\FontManager.cpp" />
     <ClCompile Include="sources\resources\GpuShaderManager.cpp" />
     <ClCompile Include="sources\resources\ImageManager.cpp" />

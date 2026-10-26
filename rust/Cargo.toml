@@ -12,6 +12,7 @@ publish = false
 hpl-ai = { path = "crates/hpl-ai" }
 hpl-generate = { path = "crates/hpl-generate" }
 hpl-math = { path = "crates/hpl-math" }
+hpl-resources = { path = "crates/hpl-resources" }
 hpl-system = { path = "crates/hpl-system" }
 log = "0.4"
 

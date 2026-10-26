@@ -21,6 +21,11 @@
 #define HPL_FILESEARCHER_H
 
 #include <map>
+#include "system/RustConfig.h"
+#if HPL2_RUST_RESOURCES
+#include <deque>
+struct HplFileSearcher;
+#endif
 #include "resources/ResourcesTypes.h"
 #include "system/SystemTypes.h"
 
@@ -51,6 +56,10 @@ namespace hpl {
 	public:
 		cFileSearcher();
 		~cFileSearcher();
+#if HPL2_RUST_RESOURCES
+		cFileSearcher(const cFileSearcher& aOther);
+		cFileSearcher& operator=(const cFileSearcher& aOther);
+#endif
 
 		/**
 		 * Adds a directory that will be searched when looking for files.
@@ -72,8 +81,14 @@ namespace hpl {
         const tWString& GetFilePath(const tString& asFileNameAndPath, int *apEqualCount=NULL);
 	
 	private:
+#if HPL2_RUST_RESOURCES
+		// Only the native string objects needed for stable public references.
+		std::deque<tWString> mvPaths;
+		HplFileSearcher *mpRs;
+#else
 		tFilePathMap m_mapFiles;
 		tWStringSet m_setLoadedDirs;
+#endif
 
 		tWString msNull;
 	};

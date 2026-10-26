@@ -15,6 +15,7 @@ crate-type = ["staticlib", "rlib"]
 hpl-ai.workspace = true
 hpl-generate.workspace = true
 hpl-math.workspace = true
+hpl-resources.workspace = true
 hpl-system.workspace = true
 log.workspace = true
 

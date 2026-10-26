@@ -50,6 +50,7 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
+#if !HPL2_RUST_RESOURCES
 	cFileSearcher::cFileSearcher()
 	{
 		msNull = _W("");
@@ -211,5 +212,7 @@ namespace hpl {
 	}
 
 	//-----------------------------------------------------------------------
+
+#endif // !HPL2_RUST_RESOURCES
 
 }

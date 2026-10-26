@@ -11,6 +11,7 @@ moving on.
 | `HPL2/core/*/system` | **Partly ported** (cString, cPreprocessParser, cLogicTimer, VideoComp; SHA1 in Rust only) | `HPL2_RUST_SYSTEM` |
 | `HPL2/core/*/generate` | **Algorithms ported** (cVoxelMap sizing, writes, debug traversal; C++ allocation/factory shell retained) | `HPL2_RUST_GENERATE` |
 | `HPL2/core/*/ai` | **Navigation owned by Rust** (phase 2: cAINodeContainer, cAINode, cAINodeIterator, cAStarHandler are C++ facades over Rust data; physics and .nodes file I/O stay C++). **State machine and node generator partly ported** (phase 1: state transitions/dispatch/scheduling, node placement; objects stay C++) | `HPL2_RUST_AI` |
+| `HPL2/core/*/resources` | **FileSearcher owned by Rust** (lookup buckets, recursion, duplicate checks and scoring; native directory access and stable returned strings) | `HPL2_RUST_RESOURCES` |
 | everything else | C++ | – |
 
 Agents working on the port: start with [HANDOFF.md](HANDOFF.md) (current
@@ -59,11 +60,13 @@ rust/
     hpl-system/         Strings, shader preprocessor, SHA1, logic timer, video mode ordering
     hpl-generate/       Voxel allocation arithmetic, flat indexing and live debug traversal
     hpl-ai/             Navigation graph and A* (nav.rs, Rust-owned) and the algorithms it runs; state machine and node placement logic
+    hpl-resources/      Rust-owned FileSearcher; platform access and returned string objects stay native
     hpl2-ffi/           The C ABI: builds hpl2_rs.lib and generates include/hpl2_rs.h
   tools/math-diff/      Differential test: original C++ vs. Rust, bit for bit
   tools/system-diff/    The same for cString and cPreprocessParser
   tools/system-core-diff/ LogicTimer and VideoComp; native MSVC and Linux runners
   tools/generate-diff/  VoxelMap public API, real graphics-interface mock, allocation/exception traces
+  tools/resources-diff/ FileSearcher public API, Windows filesystem smoke and mutation checks
   tools/ai-nav-diff/    Navigation through the public API: Compile, iterators, GetPath, save/load, live callbacks
   tools/ai-state-diff/   Real StateMachine with derived callbacks, reentry, live IDs and exception traces
   tools/ai-placement-diff/ Real Generate/OnIntersect, body bounds, controlled rays, live parameters and node lists
@@ -81,6 +84,7 @@ HPL2/core/sources/system/StringRust.cpp  cString implemented by calling Rust
 HPL2/core/sources/system/LogicTimer.cpp  per-function Rust forwards, original bodies retained
 HPL2/core/sources/system/Platform.cpp    VideoComp forwards; variadic wrappers stay C++
 HPL2/core/sources/generate/VoxelMap.cpp per-function forwards; allocation/ownership stay C++
+HPL2/core/sources/resources/FileSearcherRust.cpp Rust-owned FileSearcher facade (stable native strings and platform calls)
 HPL2/core/sources/ai/AStarRust.cpp     cAStarHandler facade (phase 2); AStar.cpp keeps the original
 HPL2/core/sources/ai/AINodeContainerRust.cpp cAINode/cAINodeIterator/cAINodeContainer facades (phase 2);
                                          AINodeContainer.cpp keeps the original, the ray callback and FreePath
@@ -779,7 +783,7 @@ All requested native checks passed before the FileSearcher audit began:
 * `cargo test --workspace --locked`: **233 passed** (133 AI, 13 generate,
   33 math, 27 system, 27 FFI).
 * `cargo clippy --workspace --all-targets --locked -- -D warnings`: clean.
-* Every current `run.ps1` harness passed natively on Windows x64:
+* All six `run.ps1` harnesses present at that point passed natively on Windows x64:
 
 | Harness | Original baseline | Lines | Result |
 |---|---|---:|---|
@@ -812,67 +816,137 @@ remains untested: rebuild with AI at 1, load several maps, test enemy patrol,
 pursuit, obstacle pathing and save/reload; preserve and temporarily rename a
 map's `.nodes` cache to force compilation. Repeat with AI at 0, then restore 1.
 
-### FileSearcher audit: stopped before implementation
+### FileSearcher: approved whole-class port
 
-The owner's second step was a whole-class `resources/cFileSearcher` port.
-It has real resource-loading callers (including Lux map script lookups), no
-subclasses, and stable-reference requirements that fit the phase 2 pattern.
-However, the **bridge-size stop rule in HANDOFF.md applies**. No resources
-crate, switch, production bridge, harness or mutations were added.
+The owner explicitly approved the bridge-size exception after the previous pass's audit
+on 2026-10-25. `HPL2_RUST_RESOURCES` defaults to 1 in `RustConfig.h`.
+`hpl-resources/src/file_searcher.rs` owns filename buckets, component snapshots,
+recursive scan order, duplicate decisions and path ranking. `resources.rs`
+exports the class lifecycle, clone/assignment, clear, add-directory and lookup
+through the single `hpl2-ffi` library. No new third-party dependency is used.
 
-Measured source size is **215 physical / 107 nonblank, noncomment C++ lines**
-in `FileSearcher.cpp`, including declarations, braces and includes. The main
-methods account for 29 lines of AddDirectory and 55 of GetFilePath. A readable
-whole-class design is estimated to need **130–190 bridge code lines** across
-the C ABI and C++ facade, before its pure Rust implementation. This is a
-design estimate, not a claim about code written. It must adapt native file
-and folder lists, full-path resolution, stable native strings, and exception
-stop/rethrow. Combining the three platform operations behind one dispatch
-callback still leaves these adaptations; keeping recursive traversal in C++
-would instead make this another method slice.
+`FileSearcherRust.cpp` replaces the original class methods only when the
+switch is 1. The complete original bodies remain in `FileSearcher.cpp` under
+switch 0; removing the two guards reconstructs the baseline source exactly.
+The public `cFileSearcherEntry` constructor remains available in both modes.
+Public headers include only `RustConfig.h` and an opaque forward declaration.
 
-Proposed ownership: Rust holds ordered filename buckets, full-path comparison
-data, split path components, duplicate checks, recursive traversal and ranking.
-C++ calls `FindFilesInDir`, `FindFoldersInDir` and `GetFullFilePath`, and retains
-one `tWString` per accepted entry in nonmoving storage plus `msNull`. Rust
-stores opaque handles to those strings; GetFilePath returns the selected
-native string directly. Additions/other lookups cannot invalidate references;
-clear/destruction invalidates entry references as in the original. A shared
-scratch string or lazy cache would change those semantics/allocation timing.
-The original also has implicit deep-copy construction/assignment; an opaque
-pointer cannot silently replace that with shallow copying or deleted copying.
-No copies were found in callers, but preserving the public class contract
-would add clone/copy handling to the proposed bridge.
+C++ retains `cPlatform::FindFilesInDir`, `FindFoldersInDir` and
+`GetFullFilePath`, and a `std::deque<tWString>` solely for stable native string
+objects. Each Rust entry stores its native string index and path components.
+Returned references survive later scans/lookups; entry references expire on
+clear, assignment or destruction. The persistent `msNull` object survives
+clear/assignment. Copies clone both the Rust lookup and native strings; they
+remain independent, and self-assignment is a no-op. Assignment replaces the
+Rust object's data in place so a scan reentered from a native callback can
+continue safely.
 
-Fidelity findings for any later implementation:
+The per-call `HplFileSearchHost` lists names into Rust-owned vectors, resolves
+a path, retains an accepted native string and reads an existing native string.
+The listing trampoline keeps the caller's original mask reference and rereads
+it for each recursive files-list call. Lists are complete before any file is
+processed. Throwing native operations catch into a per-invocation exception
+slot, return false, then rethrow only after Rust returns; completed entries
+survive. No Rust reference into owned lookup data crosses a native callback.
+The original search path is copied before a callback could clear its native
+string storage. Native string views are consumed before another callback.
+
+Fidelity findings preserved by the implementation:
 
 * Only filename keys are lowercased, after the existing wide-to-byte conversion.
-  Paths and component comparisons remain case-sensitive despite AddDirectory's
-  misleading comment. Reuse `hpl-system` conversion/tokenization helpers.
-* Duplicate rejection checks only the **first** equal-name entry's full path.
-  Repeated paths matching a later entry are inserted again. Equivalent-name
-  insertion order and first-wins score ties must be retained.
-* Scoring includes the stored filename component. It takes the larger of two
-  asymmetric backward subsequence counts; it is not a common-suffix score.
-* Missing names set the optional count to zero. An empty wanted path returns
-  the first entry without writing that count. A unique name bypasses scoring
-  only when the count pointer is null. Extensionless queries inherit cString's
-  unusual GetFilePath behavior (returning the whole input when it has no dot).
-* The loaded-directory set is unused. Repeated scans and depth-first recursion
-  must remain; no visited-directory deduplication or cycle guard is implied.
-* Native platform limitations stay native: Windows folder listing reads past
-  an empty path, and full-path resolution ignores failure/oversize results.
-  Directory cycles may recurse indefinitely. These are not new fixes in this
-  pass; a future harness must exclude undefined native operations explicitly.
+  Full paths and directory components remain case-sensitive. Existing
+  `hpl-system` helpers preserve byte/wide-string and separator behavior.
+* Duplicate suppression compares only the first equal-name entry's **live
+  native path**. Identical paths matching later entries may be inserted again.
+  Even legal `const_cast` edits of a returned string affect duplicate checking,
+  while the already-captured component list remains unchanged, as in C++.
+* Scoring includes the filename component. It takes the larger of two
+  asymmetric backward subsequence counts, not a common suffix. First entries
+  win ties. Filename buckets retain equivalent-name insertion order.
+* Missing names write count 0; an empty wanted path leaves the count untouched.
+  A unique filename bypasses scoring only with a null count pointer.
+  Extensionless names inherit cString's unusual GetFilePath behavior.
+* The unused loaded-directory set adds no deduplication. Repeated scans and
+  depth-first recursion remain. Copying also preserves a legally edited
+  missing-result string. Native platform exceptions retain the completed prefix.
+* Component indexing narrows size_t to signed low 32 bits at the original
+  scoring point, preserving defined wrapped-negative early exits.
 
-**Proposal for the owner:** defer this small class until a shared native
-directory/path boundary can serve enough ported resource code to justify its
-bridge, or explicitly approve a bridge-size exception for this whole-class
-design. Do not silently move on to input or another target. The proposed
-public-API corpus should cover duplicate scans/order, case and separator
-quirks, count sentinels, stable references across additions, clear/reload,
-recursive listing order and controlled native exceptions, with a separate
-real Windows-directory smoke test. The owner still chooses the next scope.
+Two defensive deviations cover original undefined behavior only: a subsequent
+member use after callback-driven destruction aborts, and the signed subtraction
+from INT_MIN when initializing a component index aborts. A separate lifetime
+token permits defined completion after destruction (empty final lists or an
+exception before further member use), without touching freed Rust storage. No guard rejects other
+large counts prematurely. Native platform hazards (empty recursive Windows
+paths, failed/oversized full-path resolution) and directory cycles are not
+changed by this class port; the differential inputs exclude those operations.
+
+The baseline is `2b8f159`, archived under `rust/target/resources-pristine` with
+both `HPL2/core` and its generated header. `tools/resources-diff/run.ps1`
+compares the public API four ways on Windows x64; `run.sh` is supplied for
+Linux but was not run in this pass. All variants link the actual original
+cString source (`HPL2_RUST_SYSTEM=0`) so the Rust class is checked against the
+native helper behavior, including Windows narrowing. The fixture controls
+only unported platform operations, records every call/result and controlled
+exception, and never inspects private containers or allocation counts.
+
+The controlled corpus has 2,048 seeded cases plus fixed cases: 11,394 logged Add
+requests, 65,852 queries, 16,105 file lists, 5,776 folder lists, 80,725 full-path
+calls, 26 reentry actions and 14 controlled exceptions. It checks stable
+reference identity/value across growth, copies and assignment independence,
+mutable native result strings, mask changes, nested scans, partial failure,
+and seven defined terminal-destruction cases.
+`run.ps1 -NativeFiles` separately links actual `PlatformWin32.cpp` and builds
+a real directory tree in each variant's output folder, checking recursion,
+masks, hidden-file exclusion, copies and reference stability. Only its
+variant-specific root prefix is normalized in printed paths. Unused timer
+imports have abort-only stubs; directory/path functions are not mocked there.
+
+Verification (Rust 1.97.0, native MSVC x64):
+
+* Workspace unit tests: **271 passed** (133 AI, 13 generate, 33 math,
+  28 resources, 27 system, 37 FFI); **38 new** tests cover the owned class
+  and ABI. `cargo clippy --workspace --all-targets --locked -- -D warnings`
+  is clean.
+* Public API differential: **359,553 lines, 4-way identical** against
+  `2b8f159`, including seven defined terminal-destruction cases.
+* Real Windows filesystem smoke: **15 lines, 4-way identical** using
+  `run.ps1 -NativeFiles` and actual native platform methods.
+* Mutations: **12/12 caught, 0 equivalent**, all completed output mismatches.
+  The set covers both filename case folds, slashes, file traversal, recursion,
+  tie order, both subsequence directions, stored filename components, unique
+  and empty-path count behavior, and live first-path duplicate suppression.
+  Exact source bytes were restored, both libraries rebuilt, then both clean
+  four-way tests rerun. Mutation checking was repeated after the lifetime fix.
+* Full `Amnesia.sln` **Debug x64 and Release x64** passed with resources
+  **0 and 1** (all four builds, Lux and all six tools), without warnings/errors.
+  The shared switch was restored exactly; both final executables use the
+  default **`HPL2_RUST_RESOURCES=1`**. AI remains enabled too.
+
+The source audit corrected an initially overbroad destruction guard: terminal
+callbacks may legally destroy the object and finish without another member
+use. The lifetime-token version preserves those cases; only subsequent use
+aborts. Initial native-smoke linkage needed its existing platform dependencies;
+no production platform code changed. PowerShell native stderr handling was
+adjusted so a harmless Cargo incremental-cache warning is not mistaken for a
+failed process. That setup interruption planted no mutant and counted as no
+detection. Tests/builds use process-only `CARGO_INCREMENTAL=0`.
+
+Production source size (excluding blank lines, comments, tests, public-header
+additions and generated headers): **176 Rust lines** (99 pure/module + 77 ABI)
+versus **92 C++ facade lines**. The combined bridge is **169 lines**, under
+this class's explicitly approved exception. Physical production counts are
+253 Rust / 143 C++. The original is 215 physical / 107 code lines; it remains
+available at switch 0. The gain is Rust ownership and complete class decisions,
+not a claim that this small bridge is cheaper than its logic.
+
+Logs: `rust/target/resources-unit.log`, `resources-clippy.log`,
+`resources-diff/mutations/{summary.txt,restored.log}`,
+`resources-native-final.log`, and `resources-builds/`. Linux and gameplay
+were not run. Reload the changed VS projects (or restart VS), load several
+maps and a save, and check that textures, sounds and map scripts resolve.
+Compare the same loads with `HPL2_RUST_RESOURCES=0`, then restore 1.
+The owner chooses the next target; this pass does not start input.
 
 The phase 1 harnesses `astar-diff`, `astar-path-diff`, `ai-grid-diff` and
 `ai-compile-diff` were removed: they observed private allocations

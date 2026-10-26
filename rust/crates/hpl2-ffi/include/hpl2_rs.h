@@ -52,6 +52,8 @@ typedef struct HplAINode HplAINode;
 // A `cAStarHandler`'s search state (opaque).
 typedef struct HplAStar HplAStar;
 
+typedef struct HplFileSearcher HplFileSearcher;
+
 // A narrow string (`tString` / `const char*`) by pointer and length.
 // A null `ptr` stands for a null `const char*` where the C++ accepts one.
 typedef struct HplStr {
@@ -307,6 +309,12 @@ typedef struct HplTriEdge {
 // Receives the result of [`hpl_math_create_edges`] (called exactly once).
 typedef void (*HplEdgeSink)(void *context, const struct HplTriEdge *edges, size_t count);
 
+// A wide string (`tWString`) by pointer and length.
+typedef struct HplWStr {
+  const HplWChar *ptr;
+  size_t len;
+} HplWStr;
+
 // Receives wide text.
 typedef void (*HplWStrSink)(void *ctx, const HplWChar *data, size_t len);
 
@@ -316,11 +324,17 @@ typedef struct HplWStrOut {
   void *ctx;
 } HplWStrOut;
 
-// A wide string (`tWString`) by pointer and length.
-typedef struct HplWStr {
-  const HplWChar *ptr;
-  size_t len;
-} HplWStr;
+// Native dependencies of AddDirectory. Callbacks catch and save exceptions;
+// false stops Rust, then C++ rethrows. Listing emits one string per entry;
+// full_path emits one resolved path. Input views expire on callback return.
+typedef struct HplFileSearchHost {
+  void *ctx;
+  bool (*list)(void *ctx, struct HplWStr path, bool folders, struct HplWStrOut out);
+  bool (*full_path)(void *ctx, struct HplWStr path, struct HplWStrOut out);
+  bool (*retain_path)(void *ctx, struct HplWStr path, size_t *index);
+  // Nonthrowing view of a stable native string; read before another callback.
+  struct HplWStr (*retained_path)(void *ctx, size_t index);
+} HplFileSearchHost;
 
 // Receives narrow text.
 typedef void (*HplStrSink)(void *ctx, const uint8_t *data, size_t len);
@@ -1121,6 +1135,28 @@ uint32_t hpl_crc_put_data(const uint32_t *table,
                           uint32_t register_,
                           const uint8_t *data,
                           size_t len);
+
+struct HplFileSearcher *hpl_resources_file_searcher_new(void);
+
+struct HplFileSearcher *hpl_resources_file_searcher_clone(const struct HplFileSearcher *source);
+
+void hpl_resources_file_searcher_assign(struct HplFileSearcher *target,
+                                        const struct HplFileSearcher *source);
+
+void hpl_resources_file_searcher_free(struct HplFileSearcher *searcher);
+
+void hpl_resources_file_searcher_clear(struct HplFileSearcher *searcher);
+
+bool hpl_resources_file_searcher_add_directory(struct HplFileSearcher *searcher,
+                                               struct HplWStr path,
+                                               bool recurse,
+                                               const struct HplFileSearchHost *host);
+
+// SIZE_MAX selects the facade's persistent msNull; only write count when the
+// original did. Read all input before the nullable output (possible alias).
+size_t hpl_resources_file_searcher_get_file_path(const struct HplFileSearcher *searcher,
+                                                 struct HplStr name,
+                                                 int32_t *count);
 
 void hpl_string_to_16char(struct HplStr a, struct HplWStrOut out);
 

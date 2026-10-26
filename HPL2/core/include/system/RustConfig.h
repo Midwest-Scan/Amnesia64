@@ -52,4 +52,9 @@
 #define HPL2_RUST_AI 1
 #endif
 
+// cFileSearcher: Rust-owned lookup and scan decisions; native stable strings.
+#ifndef HPL2_RUST_RESOURCES
+#define HPL2_RUST_RESOURCES 1
+#endif
+
 #endif // HPL_RUST_CONFIG_H

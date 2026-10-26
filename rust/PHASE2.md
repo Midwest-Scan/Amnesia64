@@ -111,3 +111,32 @@ In-game checks:
 - Saves restore patrol nodes.
 - Delete a map's `*.nodes` cache to force the `Compile` path.
 - Compare against `HPL2_RUST_AI 0` in `system/RustConfig.h`.
+
+## FileSearcher (`resources/FileSearcher`)
+
+The owner approved a bridge-size exception for this small whole class.
+Rust owns the filename buckets, component snapshots, recursive traversal,
+duplicate checks and ranking. C++ owns a deque of native strings required
+by `const tWString&`, the persistent missing-result string, and platform
+file/folder listing and full-path resolution. Rust stores deque indices;
+no native string/container layout crosses the boundary.
+
+Copy construction clones Rust state after native string copies succeed.
+Assignment copies both sides but keeps the target Rust object address and
+lifetime token, permitting defined callback reentry; self-assignment
+preserves references. Additions preserve existing native string references.
+Entry references are invalidated by clear/assignment/destruction; the missing
+string object remains stable across clear/assignment. Existing native strings
+remain authoritative for duplicate comparison even after a legal const_cast
+edit, while saved path components remain snapshots.
+
+`HplFileSearchHost` has listing, full-path, native string retention and view
+callbacks. The mask stays a live reference in C++, read once per files-list
+operation. Throwing callbacks use the existing catch/stop/rethrow convention.
+A native view expires at the next callback; Rust copies it immediately.
+A separate lifetime token also permits terminal callbacks to destroy the
+searcher if the operation returns/throws without another member access; only
+subsequent use of the destroyed object aborts. No lookup-data reference
+survives a callback. Original C++ remains at switch
+0 (`HPL2_RUST_RESOURCES` in `RustConfig.h`). See README for the audit, tests
+and the two original-UB-only abort cases.

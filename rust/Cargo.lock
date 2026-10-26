@@ -99,6 +99,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "hpl-resources"
+version = "0.1.0"
+dependencies = [
+ "hpl-system",
+]
+
+[[package]]
 name = "hpl-system"
 version = "0.1.0"
 dependencies = [
@@ -114,6 +121,7 @@ dependencies = [
  "hpl-ai",
  "hpl-generate",
  "hpl-math",
+ "hpl-resources",
  "hpl-system",
  "log",
 ]

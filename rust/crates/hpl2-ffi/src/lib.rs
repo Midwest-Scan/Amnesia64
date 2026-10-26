@@ -16,6 +16,7 @@ pub mod generate;
 pub mod geometry;
 pub mod math;
 pub mod misc;
+pub mod resources;
 pub mod system;
 pub mod system_core;
 pub mod types;

@@ -149,6 +149,18 @@
     <None Include="tools\ai-scheduler-diff\run.ps1" />
     <None Include="tools\ai-scheduler-diff\run.sh" />
     <None Include="tools\ai-scheduler-diff\mutate.ps1" />
+    <None Include="crates\hpl-resources\Cargo.toml" />
+    <None Include="crates\hpl-resources\src\lib.rs" />
+    <None Include="crates\hpl-resources\src\file_searcher.rs" />
+    <None Include="crates\hpl-resources\src\file_searcher_tests.rs" />
+    <None Include="crates\hpl2-ffi\src\resources.rs" />
+    <None Include="crates\hpl2-ffi\src\resources_tests.rs" />
+    <None Include="tools\resources-diff\diff_main.cpp" />
+    <None Include="tools\resources-diff\native_main.cpp" />
+    <None Include="tools\resources-diff\stubs.cpp" />
+    <None Include="tools\resources-diff\run.ps1" />
+    <None Include="tools\resources-diff\run.sh" />
+    <None Include="tools\resources-diff\mutate.ps1" />
     <ClInclude Include="crates\hpl2-ffi\include\hpl2_rs.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

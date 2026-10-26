@@ -43,6 +43,12 @@
     <Filter Include="tools\ai-scheduler-diff">
       <UniqueIdentifier>{4E5ED4E4-F880-45D2-ACFE-836A30FCDE72}</UniqueIdentifier>
     </Filter>
+    <Filter Include="crates\hpl-resources">
+      <UniqueIdentifier>{dc164767-0a70-44cc-a0b5-6a0bfd6f1306}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="tools\resources-diff">
+      <UniqueIdentifier>{7b17fbcb-c707-4106-86c6-1b75d6e94376}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <None Include="build.cmd" />
@@ -336,6 +342,42 @@
     </None>
     <None Include="tools\ai-scheduler-diff\mutate.ps1">
       <Filter>tools\ai-scheduler-diff</Filter>
+    </None>
+    <None Include="crates\hpl-resources\Cargo.toml">
+      <Filter>crates\hpl-resources</Filter>
+    </None>
+    <None Include="crates\hpl-resources\src\lib.rs">
+      <Filter>crates\hpl-resources</Filter>
+    </None>
+    <None Include="crates\hpl-resources\src\file_searcher.rs">
+      <Filter>crates\hpl-resources</Filter>
+    </None>
+    <None Include="crates\hpl-resources\src\file_searcher_tests.rs">
+      <Filter>crates\hpl-resources</Filter>
+    </None>
+    <None Include="crates\hpl2-ffi\src\resources.rs">
+      <Filter>crates\hpl2-ffi</Filter>
+    </None>
+    <None Include="crates\hpl2-ffi\src\resources_tests.rs">
+      <Filter>crates\hpl2-ffi</Filter>
+    </None>
+    <None Include="tools\resources-diff\diff_main.cpp">
+      <Filter>tools\resources-diff</Filter>
+    </None>
+    <None Include="tools\resources-diff\native_main.cpp">
+      <Filter>tools\resources-diff</Filter>
+    </None>
+    <None Include="tools\resources-diff\stubs.cpp">
+      <Filter>tools\resources-diff</Filter>
+    </None>
+    <None Include="tools\resources-diff\run.ps1">
+      <Filter>tools\resources-diff</Filter>
+    </None>
+    <None Include="tools\resources-diff\run.sh">
+      <Filter>tools\resources-diff</Filter>
+    </None>
+    <None Include="tools\resources-diff\mutate.ps1">
+      <Filter>tools\resources-diff</Filter>
     </None>
     <ClInclude Include="crates\hpl2-ffi\include\hpl2_rs.h">
       <Filter>crates\hpl2-ffi</Filter>

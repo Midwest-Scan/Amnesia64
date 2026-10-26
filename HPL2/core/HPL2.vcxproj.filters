@@ -1713,6 +1713,9 @@
     <ClCompile Include="sources\resources\FileSearcher.cpp">
       <Filter>Resources</Filter>
     </ClCompile>
+    <ClCompile Include="sources\resources\FileSearcherRust.cpp">
+      <Filter>Resources</Filter>
+    </ClCompile>
     <ClCompile Include="sources\resources\FontManager.cpp">
       <Filter>Resources</Filter>
     </ClCompile>

@@ -1,0 +1,11 @@
+[package]
+name = "hpl-resources"
+version = "0.1.0"
+description = "Rust-owned HPL2 resource classes (FileSearcher)"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+hpl-system.workspace = true
