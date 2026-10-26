@@ -138,6 +138,7 @@
     <None Include="tools\ai-nav-diff\diff_main.cpp" />
     <None Include="tools\ai-nav-diff\stubs.cpp" />
     <None Include="tools\ai-nav-diff\run.sh" />
+    <None Include="tools\ai-nav-diff\run.ps1" />
     <None Include="tools\ai-placement-diff\diff_main.cpp" />
     <None Include="tools\ai-placement-diff\stubs.cpp" />
     <None Include="tools\ai-placement-diff\run.ps1" />

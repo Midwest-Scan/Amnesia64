@@ -304,6 +304,9 @@
     <None Include="tools\ai-nav-diff\run.sh">
       <Filter>tools\ai-nav-diff</Filter>
     </None>
+    <None Include="tools\ai-nav-diff\run.ps1">
+      <Filter>tools\ai-nav-diff</Filter>
+    </None>
     <None Include="tools\ai-placement-diff\diff_main.cpp">
       <Filter>tools\ai-placement-diff</Filter>
     </None>

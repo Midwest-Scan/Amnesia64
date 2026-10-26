@@ -756,15 +756,123 @@ and no engine or Lux code does.
   search, nested direct searches); plus iterator copies, lookups,
   save/load round trips with renamed nodes and missing files. The harness
   uses a monotonic allocator so node addresses follow insertion order in
-  every variant (see `stubs.cpp`). Linux only (it uses `mmap`).
+  every variant (see `stubs.cpp`). The Linux runner uses `mmap`; the native
+  Windows runner, `run.ps1`, uses `VirtualAlloc` to reserve the arena and
+  commit pages as needed. Both compare against `e91d65c`.
 * Mutation check: **12/12 caught** (address order, relaxing open nodes,
   grid rebuild clearing, iterator stepping, compile radius, duplicate lookups,
   stale goals, iterator radius, squared distance, iteration default, start
   costs).
 * Regression: math, system, system-core, generate, ai-state, ai-placement and
   ai-scheduler harnesses rerun 4-way identical on Linux.
-* Not verified here: the MSVC build and the game. Build Debug and Release x64
-  in Visual Studio (reload the projects first) and check enemies in game.
+* That Linux pass did not verify MSVC or gameplay. Native verification follows.
+
+### Windows verification of `ae2250d` (2026-10-25)
+
+All requested native checks passed before the FileSearcher audit began:
+
+* Full `Amnesia.sln` **Debug x64 and Release x64**, each with
+  **`HPL2_RUST_AI=1` and `HPL2_RUST_AI=0`**: all four builds passed,
+  including Lux and all six editor/tool projects. The shared header was
+  changed for the switch-off builds and restored byte-for-byte to default 1.
+  The last built executables use switch 0; rebuild before testing default 1.
+* `cargo test --workspace --locked`: **233 passed** (133 AI, 13 generate,
+  33 math, 27 system, 27 FFI).
+* `cargo clippy --workspace --all-targets --locked -- -D warnings`: clean.
+* Every current `run.ps1` harness passed natively on Windows x64:
+
+| Harness | Original baseline | Lines | Result |
+|---|---|---:|---|
+| system-core | `5cc7a98` | 142,264 | 4-way identical |
+| generate | `8cd7087` | 196,623 | 4-way identical |
+| ai-state | `dbf8b58` | 789,159 | 4-way identical |
+| ai-placement | `1c3821f` | 429,618 | 4-way identical |
+| ai-scheduler | `9f35c56` | 796,994 | 4-way identical |
+| ai-nav | `e91d65c` | 683,569 | 4-way identical |
+
+The new `tools/ai-nav-diff/run.ps1` follows the existing native runners.
+Its fixture reserves 16 GiB with `VirtualAlloc`, commits only the used
+pages, and never recycles allocations, so public node pointer ties follow
+allocation order in every variant. The Linux `mmap` branch is retained.
+The Windows corpus records **2,876,196 rays** per variant. Its line count
+need not equal Linux's: comparison is against the same platform's original
+C++ implementation. The runner uses a short per-variant save-file path to
+stay inside the existing fixture's fixed-size filename buffer.
+
+No production fix or new deviation was needed. No mutation run was repeated
+in this verification pass; the 12/12 result above belongs to Claude's Linux
+pass. Linux-only math/system runners were not rerun here. Unit tests and
+Clippy used process-only `CARGO_INCREMENTAL=0`; the initial Debug solution
+build emitted harmless incremental-cache hard-link fallback warnings. Build
+settings and toolchain pin are unchanged. Logs are under
+`rust/target/windows-verification/` and `rust/target/ai-nav-*-run.log`.
+
+Reload the Rust project after the new runner's project-list entries. Gameplay
+remains untested: rebuild with AI at 1, load several maps, test enemy patrol,
+pursuit, obstacle pathing and save/reload; preserve and temporarily rename a
+map's `.nodes` cache to force compilation. Repeat with AI at 0, then restore 1.
+
+### FileSearcher audit: stopped before implementation
+
+The owner's second step was a whole-class `resources/cFileSearcher` port.
+It has real resource-loading callers (including Lux map script lookups), no
+subclasses, and stable-reference requirements that fit the phase 2 pattern.
+However, the **bridge-size stop rule in HANDOFF.md applies**. No resources
+crate, switch, production bridge, harness or mutations were added.
+
+Measured source size is **215 physical / 107 nonblank, noncomment C++ lines**
+in `FileSearcher.cpp`, including declarations, braces and includes. The main
+methods account for 29 lines of AddDirectory and 55 of GetFilePath. A readable
+whole-class design is estimated to need **130–190 bridge code lines** across
+the C ABI and C++ facade, before its pure Rust implementation. This is a
+design estimate, not a claim about code written. It must adapt native file
+and folder lists, full-path resolution, stable native strings, and exception
+stop/rethrow. Combining the three platform operations behind one dispatch
+callback still leaves these adaptations; keeping recursive traversal in C++
+would instead make this another method slice.
+
+Proposed ownership: Rust holds ordered filename buckets, full-path comparison
+data, split path components, duplicate checks, recursive traversal and ranking.
+C++ calls `FindFilesInDir`, `FindFoldersInDir` and `GetFullFilePath`, and retains
+one `tWString` per accepted entry in nonmoving storage plus `msNull`. Rust
+stores opaque handles to those strings; GetFilePath returns the selected
+native string directly. Additions/other lookups cannot invalidate references;
+clear/destruction invalidates entry references as in the original. A shared
+scratch string or lazy cache would change those semantics/allocation timing.
+The original also has implicit deep-copy construction/assignment; an opaque
+pointer cannot silently replace that with shallow copying or deleted copying.
+No copies were found in callers, but preserving the public class contract
+would add clone/copy handling to the proposed bridge.
+
+Fidelity findings for any later implementation:
+
+* Only filename keys are lowercased, after the existing wide-to-byte conversion.
+  Paths and component comparisons remain case-sensitive despite AddDirectory's
+  misleading comment. Reuse `hpl-system` conversion/tokenization helpers.
+* Duplicate rejection checks only the **first** equal-name entry's full path.
+  Repeated paths matching a later entry are inserted again. Equivalent-name
+  insertion order and first-wins score ties must be retained.
+* Scoring includes the stored filename component. It takes the larger of two
+  asymmetric backward subsequence counts; it is not a common-suffix score.
+* Missing names set the optional count to zero. An empty wanted path returns
+  the first entry without writing that count. A unique name bypasses scoring
+  only when the count pointer is null. Extensionless queries inherit cString's
+  unusual GetFilePath behavior (returning the whole input when it has no dot).
+* The loaded-directory set is unused. Repeated scans and depth-first recursion
+  must remain; no visited-directory deduplication or cycle guard is implied.
+* Native platform limitations stay native: Windows folder listing reads past
+  an empty path, and full-path resolution ignores failure/oversize results.
+  Directory cycles may recurse indefinitely. These are not new fixes in this
+  pass; a future harness must exclude undefined native operations explicitly.
+
+**Proposal for the owner:** defer this small class until a shared native
+directory/path boundary can serve enough ported resource code to justify its
+bridge, or explicitly approve a bridge-size exception for this whole-class
+design. Do not silently move on to input or another target. The proposed
+public-API corpus should cover duplicate scans/order, case and separator
+quirks, count sentinels, stable references across additions, clear/reload,
+recursive listing order and controlled native exceptions, with a separate
+real Windows-directory smoke test. The owner still chooses the next scope.
 
 The phase 1 harnesses `astar-diff`, `astar-path-diff`, `ai-grid-diff` and
 `ai-compile-diff` were removed: they observed private allocations

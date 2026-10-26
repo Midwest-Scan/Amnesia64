@@ -35,7 +35,14 @@
 #include <cstdlib>
 #include <cstring>
 #include <new>
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
 #include <sys/mman.h>
+#endif
 
 FILE* gLogOut = stdout;
 hpl::iPhysicsWorld* gPhysicsWorld = NULL;
@@ -43,17 +50,37 @@ hpl::iPhysicsWorld* gPhysicsWorld = NULL;
 static char* gArena = NULL;
 static size_t gArenaUsed = 0;
 static const size_t kArenaSize = (size_t)16 << 30; // reserved, not committed
+#if defined(_WIN32)
+static size_t gArenaCommitted = 0;
+#endif
 
 void* operator new(std::size_t size)
 {
     if(gArena == NULL) {
+#if defined(_WIN32)
+        void* p = VirtualAlloc(NULL, kArenaSize, MEM_RESERVE, PAGE_READWRITE);
+        if(p == NULL) std::abort();
+#else
         void* p = mmap(NULL, kArenaSize, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_NORESERVE, -1, 0);
         if(p == MAP_FAILED) std::abort();
+#endif
         gArena = static_cast<char*>(p);
     }
     size_t aligned = (size + 15) & ~(size_t)15;
     if(aligned == 0) aligned = 16;
-    if(gArenaUsed + aligned > kArenaSize) std::abort();
+    if(aligned > kArenaSize - gArenaUsed) std::abort();
+#if defined(_WIN32)
+    // Commit only the pages being used; reserving the full range keeps node
+    // addresses monotonic without consuming 16 GiB of Windows commit charge.
+    // 64 KiB is a multiple of the supported Windows x64 page sizes.
+    size_t required = gArenaUsed + aligned;
+    if(required > gArenaCommitted) {
+        size_t committed = (required + 65535) & ~(size_t)65535;
+        if(VirtualAlloc(gArena + gArenaCommitted, committed - gArenaCommitted,
+                        MEM_COMMIT, PAGE_READWRITE) == NULL) std::abort();
+        gArenaCommitted = committed;
+    }
+#endif
     void* data = gArena + gArenaUsed;
     gArenaUsed += aligned;
     return data;
