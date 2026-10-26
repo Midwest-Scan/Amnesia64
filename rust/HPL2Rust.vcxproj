@@ -52,6 +52,7 @@
     <None Include="rust-toolchain.toml" />
     <None Include="README.md" />
     <None Include="PHASE2.md" />
+    <None Include="HANDOFF.md" />
     <None Include="HPL2Rust.props" />
     <None Include="crates\hpl-math\Cargo.toml" />
     <None Include="crates\hpl2-ffi\Cargo.toml" />

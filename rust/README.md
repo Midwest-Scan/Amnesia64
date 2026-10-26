@@ -13,6 +13,9 @@ moving on.
 | `HPL2/core/*/ai` | **Navigation owned by Rust** (phase 2: cAINodeContainer, cAINode, cAINodeIterator, cAStarHandler are C++ facades over Rust data; physics and .nodes file I/O stay C++). **State machine and node generator partly ported** (phase 1: state transitions/dispatch/scheduling, node placement; objects stay C++) | `HPL2_RUST_AI` |
 | everything else | C++ | – |
 
+Agents working on the port: start with [HANDOFF.md](HANDOFF.md) (current
+state, next targets, working rules) and update it when you finish.
+
 Switches live in `HPL2/core/include/system/RustConfig.h`. Phase 2 (Rust owns
 a class's data behind a C++ facade) is described in [PHASE2.md](PHASE2.md).
 
